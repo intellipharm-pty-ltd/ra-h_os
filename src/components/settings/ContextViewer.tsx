@@ -90,7 +90,7 @@ export default function ContextViewer() {
             disabled={loadingSettings || saving}
             style={{
               ...toggleStyle,
-              background: enabled ? '#22c55e' : 'rgba(255, 255, 255, 0.1)',
+              background: enabled ? 'var(--settings-active-bg)' : 'var(--settings-code-bg)',
             }}
           >
             <span style={{
@@ -131,25 +131,25 @@ export default function ContextViewer() {
 }
 
 const containerStyle: CSSProperties = { padding: 24, height: '100%', overflow: 'auto' };
-const descStyle: CSSProperties = { fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.5 };
+const descStyle: CSSProperties = { fontSize: 13, color: 'var(--settings-muted)', marginBottom: 20, lineHeight: 1.5 };
 
 const cardStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.02)',
-  border: '1px solid rgba(255, 255, 255, 0.06)',
+  background: 'var(--settings-card-bg)',
+  border: '1px solid var(--settings-border)',
   borderRadius: 8,
   padding: 16,
   marginBottom: 24,
 };
 
-const labelStyle: CSSProperties = { fontSize: 13, fontWeight: 500, color: '#e5e7eb', marginBottom: 8 };
-const subLabelStyle: CSSProperties = { fontSize: 12, color: '#6b7280' };
-const mutedStyle: CSSProperties = { fontSize: 13, color: '#6b7280' };
+const labelStyle: CSSProperties = { fontSize: 13, fontWeight: 500, color: 'var(--settings-text)', marginBottom: 8 };
+const subLabelStyle: CSSProperties = { fontSize: 12, color: 'var(--settings-muted)' };
+const mutedStyle: CSSProperties = { fontSize: 13, color: 'var(--settings-muted)' };
 
 const toggleStyle: CSSProperties = {
   width: 48,
   height: 26,
   borderRadius: 13,
-  border: 'none',
+  border: '1px solid var(--settings-border)',
   cursor: 'pointer',
   position: 'relative',
   transition: 'background 0.15s',
@@ -161,24 +161,25 @@ const toggleKnobStyle: CSSProperties = {
   width: 18,
   height: 18,
   borderRadius: '50%',
-  background: '#fff',
+  background: 'var(--settings-text)',
   transition: 'left 0.15s',
 };
 
 const nodeCardStyle: CSSProperties = {
   padding: '12px 14px',
-  background: 'rgba(255, 255, 255, 0.02)',
-  border: '1px solid rgba(255, 255, 255, 0.06)',
+  background: 'var(--settings-card-bg)',
+  border: '1px solid var(--settings-border)',
   borderRadius: 6,
 };
 
-const nodeTitleStyle: CSSProperties = { fontSize: 13, fontWeight: 500, color: '#e5e7eb' };
-const edgeCountStyle: CSSProperties = { fontSize: 12, color: '#22c55e' };
+const nodeTitleStyle: CSSProperties = { fontSize: 13, fontWeight: 500, color: 'var(--settings-text)' };
+const edgeCountStyle: CSSProperties = { fontSize: 12, color: 'var(--settings-muted)' };
 
 const dimTagStyle: CSSProperties = {
   padding: '2px 8px',
   borderRadius: 4,
   fontSize: 11,
-  background: 'rgba(34, 197, 94, 0.1)',
-  color: '#22c55e',
+  background: 'var(--settings-chip-bg)',
+  color: 'var(--settings-subtext)',
+  border: '1px solid var(--settings-border)',
 };

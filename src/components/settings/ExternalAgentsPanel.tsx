@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 
 interface McpStatus {
   enabled: boolean;
@@ -64,30 +64,21 @@ export default function ExternalAgentsPanel() {
   }, [connectorUrl]);
 
   return (
-    <div style={{ padding: '32px', color: '#e2e8f0', overflowY: 'auto' }}>
-      <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>External Agents</h2>
-      <p style={{ color: '#94a3b8', marginBottom: '24px', lineHeight: 1.5 }}>
+    <div style={containerStyle}>
+      <p style={descStyle}>
         Connect Claude, ChatGPT, Gemini, or any MCP-compatible assistant to your local RA-H database.
-        Everything stays on device—tools simply call this connector to add or search nodes.
+        Everything stays on device. External tools only talk to the local MCP connector you expose here.
       </p>
 
-      <div
-        style={{
-          border: '1px solid #1f2937',
-          borderRadius: '10px',
-          padding: '20px',
-          marginBottom: '24px',
-          background: '#090909'
-        }}
-      >
+      <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: '14px', color: '#94a3b8' }}>Connector URL</div>
-            <div style={{ fontSize: '18px', color: connectorUrl ? '#fff' : '#64748b', marginTop: '4px' }}>
+            <div style={labelStyle}>Connector URL</div>
+            <div style={{ ...statusTextStyle, color: connectorUrl ? 'var(--settings-text)' : 'var(--settings-muted)' }}>
               {loading ? 'Loading…' : connectorUrl ?? 'Unavailable (MCP server not running)'}
             </div>
             {status.last_updated && (
-              <div style={{ fontSize: '12px', color: '#475569', marginTop: '6px' }}>
+              <div style={microcopyStyle}>
                 Updated {new Date(status.last_updated).toLocaleTimeString()}
               </div>
             )}
@@ -97,36 +88,24 @@ export default function ExternalAgentsPanel() {
             onClick={handleCopy}
             disabled={!connectorUrl}
             style={{
-              background: connectorUrl ? '#22c55e' : '#1f2937',
-              color: connectorUrl ? '#000' : '#475569',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '10px 16px',
+              ...buttonStyle,
               cursor: connectorUrl ? 'pointer' : 'not-allowed',
-              fontWeight: 600
+              opacity: connectorUrl ? 1 : 0.4,
             }}
           >
-            {copyState === 'copied' ? 'Copied ✓' : 'Copy URL'}
+            {copyState === 'copied' ? 'Copied' : 'Copy URL'}
           </button>
         </div>
         {status.last_error && (
-          <div style={{ marginTop: '12px', fontSize: '13px', color: '#fbbf24' }}>
-            ⚠️ {status.last_error}
+          <div style={{ ...helperTextStyle, color: 'var(--settings-danger)', marginTop: 12 }}>
+            {status.last_error}
           </div>
         )}
       </div>
 
-      <div
-        style={{
-          border: '1px solid #1f2937',
-          borderRadius: '10px',
-          padding: '20px',
-          marginBottom: '24px',
-          background: '#0c111d'
-        }}
-      >
-        <h3 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: 600 }}>How to use in Claude or ChatGPT</h3>
-        <ol style={{ paddingLeft: '20px', lineHeight: 1.6, color: '#cbd5f5' }}>
+      <div style={cardStyle}>
+        <div style={labelStyle}>How to use in Claude or ChatGPT</div>
+        <ol style={stepsStyle}>
           <li>Open the MCP / connectors settings in your assistant.</li>
           <li>Select “Add connector” → choose HTTP → paste the URL above.</li>
           <li>Give the connector a friendly name (e.g., “RA-H”).</li>
@@ -134,23 +113,15 @@ export default function ExternalAgentsPanel() {
         </ol>
       </div>
 
-      <div
-        style={{
-          border: '1px solid #3f1d1d',
-          borderRadius: '10px',
-          padding: '16px',
-          background: '#170e0e',
-          color: '#fca5a5',
-          marginBottom: '24px',
-          lineHeight: 1.5
-        }}
-      >
-        External agents can edit your local graph. Only enable trusted connectors and monitor their output.
-        Disconnect the connector or close RA-H if anything unexpected happens.
+      <div style={cardStyle}>
+        <div style={helperTextStyle}>
+          External agents can edit your local graph. Only enable trusted connectors and monitor their output.
+          Disconnect the connector or close RA-H if anything unexpected happens.
+        </div>
       </div>
 
       {error && (
-        <div style={{ color: '#f87171', marginBottom: '16px', fontSize: '14px' }}>{error}</div>
+        <div style={{ ...helperTextStyle, color: 'var(--settings-danger)', marginBottom: 16 }}>{error}</div>
       )}
 
       <div style={{ display: 'grid', gap: '16px' }}>
@@ -173,16 +144,92 @@ export default function ExternalAgentsPanel() {
 
 function HelperCard({ title, body }: { title: string; body: string }) {
   return (
-    <div
-      style={{
-        border: '1px solid #1f2937',
-        borderRadius: '8px',
-        padding: '14px',
-        background: '#0f172a'
-      }}
-    >
-      <div style={{ fontWeight: 600, marginBottom: '6px', color: '#f1f5f9' }}>{title}</div>
-      <div style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.5 }}>{body}</div>
+    <div style={helperCardStyle}>
+      <div style={helperCardTitleStyle}>{title}</div>
+      <div style={helperCardBodyStyle}>{body}</div>
     </div>
   );
 }
+
+const containerStyle: CSSProperties = {
+  padding: 24,
+  height: '100%',
+  overflow: 'auto',
+};
+
+const descStyle: CSSProperties = {
+  fontSize: 13,
+  color: 'var(--settings-muted)',
+  marginBottom: 20,
+  lineHeight: 1.5,
+};
+
+const cardStyle: CSSProperties = {
+  background: 'var(--settings-card-bg)',
+  border: '1px solid var(--settings-border)',
+  borderRadius: 8,
+  padding: 16,
+  marginBottom: 16,
+};
+
+const labelStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 500,
+  color: 'var(--settings-text)',
+  marginBottom: 8,
+};
+
+const statusTextStyle: CSSProperties = {
+  fontSize: 13,
+  marginTop: 4,
+};
+
+const microcopyStyle: CSSProperties = {
+  fontSize: 11,
+  color: 'var(--settings-muted)',
+  marginTop: 6,
+};
+
+const buttonStyle: CSSProperties = {
+  padding: '10px 16px',
+  background: 'transparent',
+  color: 'var(--settings-text)',
+  border: '1px solid var(--settings-border-strong)',
+  borderRadius: 6,
+  fontSize: 12,
+  fontWeight: 500,
+};
+
+const stepsStyle: CSSProperties = {
+  paddingLeft: 20,
+  lineHeight: 1.6,
+  color: 'var(--settings-subtext)',
+  fontSize: 13,
+  margin: 0,
+};
+
+const helperTextStyle: CSSProperties = {
+  fontSize: 12,
+  color: 'var(--settings-subtext)',
+  lineHeight: 1.5,
+};
+
+const helperCardStyle: CSSProperties = {
+  border: '1px solid var(--settings-border)',
+  borderRadius: 8,
+  padding: 14,
+  background: 'var(--settings-card-bg)',
+};
+
+const helperCardTitleStyle: CSSProperties = {
+  fontWeight: 600,
+  marginBottom: 6,
+  color: 'var(--settings-text)',
+  fontSize: 13,
+};
+
+const helperCardBodyStyle: CSSProperties = {
+  color: 'var(--settings-subtext)',
+  fontSize: 13,
+  lineHeight: 1.5,
+};
