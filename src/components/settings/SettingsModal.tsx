@@ -1,22 +1,12 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import LogsViewer from './LogsViewer';
-import ToolsViewer from './ToolsViewer';
 import ApiKeysViewer from './ApiKeysViewer';
-import DatabaseViewer from './DatabaseViewer';
 import ExternalAgentsPanel from './ExternalAgentsPanel';
 import ContextViewer from './ContextViewer';
-import SkillsViewer from './GuidesViewer';
-export type SettingsTab =
-  | 'logs'
-  | 'tools'
-  | 'guides'
-  | 'apikeys'
-  | 'database'
-  | 'context'
-  | 'agents';
+
+export type SettingsTab = 'apikeys' | 'context' | 'agents';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,17 +14,26 @@ interface SettingsModalProps {
   initialTab?: SettingsTab;
 }
 
-type TabType = SettingsTab;
+const DEFAULT_TAB: SettingsTab = 'apikeys';
+const TAB_ORDER: SettingsTab[] = ['apikeys', 'context', 'agents'];
+const TAB_LABELS: Record<SettingsTab, string> = {
+  apikeys: 'API Keys',
+  context: 'Context',
+  agents: 'Agents',
+};
+
+function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === 'string' && TAB_ORDER.includes(value as SettingsTab);
+}
 
 export default function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('logs');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(DEFAULT_TAB);
+
   useEffect(() => {
     if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
+      if (e.key === 'Escape') onClose();
     };
 
     window.addEventListener('keydown', handleEscape);
@@ -42,271 +41,55 @@ export default function SettingsModal({ isOpen, onClose, initialTab }: SettingsM
   }, [isOpen, onClose]);
 
   useEffect(() => {
-    if (!isOpen || !initialTab) return;
-    setActiveTab(initialTab);
+    if (!isOpen) return;
+    setActiveTab(isSettingsTab(initialTab) ? initialTab : DEFAULT_TAB);
   }, [initialTab, isOpen]);
 
   if (!isOpen) return null;
 
-  const modalContent = (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.8)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          width: '80vw',
-          height: '85vh',
-          background: 'var(--rah-bg-surface)',
-          border: '1px solid var(--rah-border-strong)',
-          borderRadius: '8px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
-          display: 'flex',
-          overflow: 'hidden'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Sidebar */}
-        <div
-          style={{
-            width: '20%',
-            background: 'var(--rah-bg-base)',
-            borderRight: '1px solid var(--rah-border-strong)',
-            display: 'flex',
-            flexDirection: 'column',
-            padding: '24px 0'
-          }}
-        >
-          <div
-            style={{
-              padding: '0 24px',
-              marginBottom: '24px',
-              fontSize: '18px',
-              fontWeight: '600',
-              color: 'var(--rah-text-active)'
-            }}
-          >
-            Settings
-          </div>
-          <nav>
-            <div
-              onClick={() => setActiveTab('logs')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'logs' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'logs' ? '#1a3a2a' : 'transparent', // semantic active state kept
-                borderLeft: activeTab === 'logs' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              Logs
-            </div>
-            <div
-              onClick={() => setActiveTab('tools')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'tools' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'tools' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'tools' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              Tools
-            </div>
-            <div
-              onClick={() => setActiveTab('guides')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'guides' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'guides' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'guides' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              Skills
-            </div>
-            <div
-              onClick={() => setActiveTab('apikeys')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'apikeys' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'apikeys' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'apikeys' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              API Keys
-            </div>
-            <div
-              onClick={() => setActiveTab('database')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'database' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'database' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'database' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              Database
-            </div>
-            <div
-              onClick={() => setActiveTab('context')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'context' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'context' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'context' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              Context
-            </div>
-            <div
-              onClick={() => setActiveTab('agents')}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: activeTab === 'agents' ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                background: activeTab === 'agents' ? '#1a3a2a' : 'transparent',
-                borderLeft: activeTab === 'agents' ? '3px solid #22c55e' : '3px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              External Agents
-            </div>
-            <div
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: 'var(--rah-text-muted)',
-                opacity: 0.4,
-                cursor: 'not-allowed'
-              }}
-            >
-              Backups
-            </div>
-            <div
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                color: 'var(--rah-text-muted)',
-                opacity: 0.4,
-                cursor: 'not-allowed'
-              }}
-            >
-              Preferences
-            </div>
+  return createPortal(
+    <div style={backdropStyle} onClick={onClose}>
+      <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={sidebarStyle}>
+          <div style={logoStyle}>Settings</div>
+
+          <nav style={navStyle}>
+            {TAB_ORDER.map((tab) => (
+              <div
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  ...navItemStyle,
+                  color: activeTab === tab ? 'var(--settings-text)' : 'var(--settings-muted)',
+                  background: activeTab === tab ? 'var(--settings-active-bg)' : 'transparent',
+                  border: activeTab === tab ? '1px solid var(--settings-active-border)' : '1px solid transparent',
+                }}
+              >
+                {TAB_LABELS[tab]}
+              </div>
+            ))}
           </nav>
 
-          <div
-            style={{
-              marginTop: 'auto',
-              padding: '24px',
-              borderTop: '1px solid var(--rah-border)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}
-          >
-            <div
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: '#64748b'
-              }}
-            >
-              Local Mode
-            </div>
-            <p
-              style={{
-                fontSize: '13px',
-                color: '#94a3b8',
-                margin: 0,
-                lineHeight: 1.5
-              }}
-            >
-              This open-source build runs entirely on your machine. Add keys via the API Keys tab to unlock every agent.
+          <div style={footerStyle}>
+            <div style={footerLabelStyle}>Local Mode</div>
+            <p style={footerTextStyle}>
+              This build runs entirely on your machine. Add your API key here to unlock descriptions,
+              embeddings, and agent-assisted workflows.
             </p>
           </div>
         </div>
 
-        {/* Content Area */}
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid var(--rah-border-strong)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}
-          >
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: 'var(--rah-text-active)'
-              }}
-            >
-              {activeTab === 'logs' && 'System Logs'}
-              {activeTab === 'tools' && 'Tools'}
-              {activeTab === 'guides' && 'Skills'}
-              {activeTab === 'apikeys' && 'API Keys'}
-              {activeTab === 'database' && 'Knowledge Database'}
-              {activeTab === 'context' && 'Auto-Context'}
-              {activeTab === 'agents' && 'External Agents'}
-            </h2>
+        <div style={contentStyle}>
+          <div style={headerStyle}>
+            <h2 style={titleStyle}>{TAB_LABELS[activeTab]}</h2>
             <button
               onClick={onClose}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--rah-text-muted)',
-                cursor: 'pointer',
-                fontSize: '24px',
-                lineHeight: 1,
-                padding: '4px 8px',
-                transition: 'color 0.2s'
-              }}
+              style={closeBtnStyle}
               onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--rah-text-active)';
+                e.currentTarget.style.color = 'var(--settings-text)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--rah-text-muted)';
+                e.currentTarget.style.color = 'var(--settings-muted)';
               }}
               title="Close (ESC)"
             >
@@ -314,20 +97,131 @@ export default function SettingsModal({ isOpen, onClose, initialTab }: SettingsM
             </button>
           </div>
 
-          {/* Content */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            {activeTab === 'logs' && <LogsViewer key={isOpen ? 'open' : 'closed'} />}
-            {activeTab === 'tools' && <ToolsViewer />}
-            {activeTab === 'guides' && <SkillsViewer />}
+          <div style={contentAreaStyle}>
             {activeTab === 'apikeys' && <ApiKeysViewer />}
-            {activeTab === 'database' && <DatabaseViewer />}
             {activeTab === 'context' && <ContextViewer />}
             {activeTab === 'agents' && <ExternalAgentsPanel />}
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
-
-  return createPortal(modalContent, document.body);
 }
+
+const backdropStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'var(--rah-backdrop)',
+  backdropFilter: 'blur(8px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+};
+
+const modalStyle: CSSProperties = {
+  width: '88vw',
+  height: '90vh',
+  maxWidth: '1400px',
+  background: 'var(--settings-bg)',
+  border: '1px solid var(--settings-border)',
+  borderRadius: '12px',
+  boxShadow: 'var(--rah-shadow-modal)',
+  display: 'flex',
+  overflow: 'hidden',
+};
+
+const sidebarStyle: CSSProperties = {
+  width: '220px',
+  background: 'var(--settings-sidebar-bg)',
+  borderRight: '1px solid var(--settings-border)',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '20px 0',
+};
+
+const logoStyle: CSSProperties = {
+  padding: '0 20px 20px',
+  fontSize: '15px',
+  fontWeight: 600,
+  color: 'var(--settings-text)',
+};
+
+const navStyle: CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '6px',
+  padding: '0 12px',
+};
+
+const navItemStyle: CSSProperties = {
+  padding: '10px 12px',
+  fontSize: '13px',
+  cursor: 'pointer',
+  transition: 'all 0.15s ease',
+  borderRadius: '8px',
+};
+
+const footerStyle: CSSProperties = {
+  marginTop: 'auto',
+  padding: '16px 20px',
+  borderTop: '1px solid var(--settings-border)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+};
+
+const footerLabelStyle: CSSProperties = {
+  fontSize: '10px',
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--settings-muted)',
+};
+
+const footerTextStyle: CSSProperties = {
+  fontSize: '12px',
+  color: 'var(--settings-subtext)',
+  margin: 0,
+  lineHeight: 1.5,
+};
+
+const contentStyle: CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+};
+
+const headerStyle: CSSProperties = {
+  padding: '16px 24px',
+  borderBottom: '1px solid var(--settings-border)',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '14px',
+  fontWeight: 500,
+  color: 'var(--settings-text)',
+};
+
+const closeBtnStyle: CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--settings-muted)',
+  cursor: 'pointer',
+  fontSize: '24px',
+  lineHeight: 1,
+  padding: '4px 8px',
+  transition: 'color 0.15s ease',
+};
+
+const contentAreaStyle: CSSProperties = {
+  flex: 1,
+  overflow: 'hidden',
+};

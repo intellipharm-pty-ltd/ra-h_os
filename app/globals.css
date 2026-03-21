@@ -66,6 +66,19 @@ html[data-theme="dark"] {
   --rah-backdrop: rgba(0, 0, 0, 0.85);
   --rah-shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --rah-shadow-floating: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --settings-bg: rgba(10, 10, 10, 0.95);
+  --settings-sidebar-bg: rgba(0, 0, 0, 0.3);
+  --settings-card-bg: rgba(255, 255, 255, 0.02);
+  --settings-code-bg: rgba(0, 0, 0, 0.24);
+  --settings-border: rgba(255, 255, 255, 0.06);
+  --settings-border-strong: rgba(255, 255, 255, 0.14);
+  --settings-text: #e5e7eb;
+  --settings-subtext: #d1d5db;
+  --settings-muted: #6b7280;
+  --settings-active-bg: rgba(255, 255, 255, 0.04);
+  --settings-active-border: rgba(255, 255, 255, 0.12);
+  --settings-chip-bg: rgba(255, 255, 255, 0.04);
+  --settings-danger: #f87171;
 }
 
 html[data-theme="light"] {
@@ -97,6 +110,19 @@ html[data-theme="light"] {
   --rah-backdrop: rgba(0, 0, 0, 0.5);
   --rah-shadow-modal: 0 10px 36px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --rah-shadow-floating: 0 6px 20px rgba(0, 0, 0, 0.16);
+  --settings-bg: #ffffff;
+  --settings-sidebar-bg: #f5f5f5;
+  --settings-card-bg: #fafafa;
+  --settings-code-bg: #f3f4f6;
+  --settings-border: rgba(0, 0, 0, 0.08);
+  --settings-border-strong: rgba(0, 0, 0, 0.16);
+  --settings-text: #111111;
+  --settings-subtext: #333333;
+  --settings-muted: #6b7280;
+  --settings-active-bg: rgba(0, 0, 0, 0.06);
+  --settings-active-border: rgba(0, 0, 0, 0.08);
+  --settings-chip-bg: rgba(0, 0, 0, 0.03);
+  --settings-danger: #b91c1c;
 }
 
 /* Modern Clean Design System - RA-H */
