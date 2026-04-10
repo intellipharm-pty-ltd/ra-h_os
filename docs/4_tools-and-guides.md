@@ -14,7 +14,7 @@ RA-OS exposes these core standalone MCP tools:
 
 | Tool | Description |
 |------|-------------|
-| `getContext` | Graph overview: stats, hub nodes, dimensions, recent activity, skills |
+| `getContext` | Graph overview: stats, contexts, hub nodes, dimensions, recent activity, skills |
 | `queryNodes` | Search nodes by keyword/dimensions/date |
 | `getNodesById` | Fetch full nodes by ID |
 | `createNode` | Create a node |

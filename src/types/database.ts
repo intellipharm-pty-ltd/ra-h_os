@@ -1,3 +1,32 @@
+export type NodeMetadataState = 'processed' | 'not_processed';
+export type NodeCapturedBy = 'human' | 'agent';
+
+export interface CanonicalNodeMetadata {
+  type?: string;
+  state?: NodeMetadataState;
+  captured_method?: string;
+  captured_by?: NodeCapturedBy;
+  source_metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface Context {
+  id: number;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContextSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  count: number;
+}
+
 // New Node-based type system replacing rigid Item categorization
 export interface Node {
   id: number;
@@ -10,10 +39,12 @@ export interface Node {
   dimensions: string[];       // Flexible dimensions replacing type + stage + segment + tags
   embedding?: Buffer;         // Node-level embedding (BLOB data)
   chunk?: string;             // Deprecated legacy field - do not write
-  metadata?: any;            // Flexible metadata storage
+  metadata?: CanonicalNodeMetadata | null; // Flexible metadata storage with canonical contract
   created_at: string;
   updated_at: string;
   edge_count?: number;       // Derived count of edges, included in some queries
+  context_id?: number | null;
+  context?: Pick<Context, 'id' | 'name' | 'description' | 'icon'> | null;
 
   // Optional embedding fields
   embedding_updated_at?: string;
@@ -67,6 +98,7 @@ export interface EdgeContext {
 // New NodeFilters interface replacing rigid ItemFilters
 export interface NodeFilters {
   dimensions?: string[];      // Filter by dimensions (replaces stage/type filtering)
+  contextId?: number;
   search?: string;           // Text search in title/content
   searchMode?: 'standard' | 'hybrid'; // standard = FTS/LIKE, hybrid = add node-vector retrieval
   chunkStatus?: 'not_chunked' | 'chunking' | 'chunked' | 'error';

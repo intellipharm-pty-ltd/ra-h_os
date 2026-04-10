@@ -3,16 +3,33 @@ import { z } from 'zod';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import { extractYouTube } from '@/services/typescript/extractors/youtube';
+import { getInternalApiBaseUrl } from '@/services/runtime/apiBase';
 import { formatNodeForChat } from '../infrastructure/nodeFormatter';
+import { validateExplicitDescription } from '@/services/database/quality';
 
 interface ExistingDimension {
   name: string;
   description: string | null;
 }
 
+function ensureNodeDescription(candidate: string | undefined, fallbackLead: string): string {
+  const normalizedCandidate = typeof candidate === 'string'
+    ? candidate.trim().replace(/\s+/g, ' ')
+    : '';
+
+  if (normalizedCandidate && !validateExplicitDescription(normalizedCandidate)) {
+    return normalizedCandidate.slice(0, 500);
+  }
+
+  const lead = normalizedCandidate || fallbackLead.trim();
+  const suffix = 'It was added via extraction and the exact reason it belongs in the graph is not yet inferred from the available context, and it has not been reviewed yet.';
+  const joined = `${lead}${/[.!?]$/.test(lead) ? ' ' : '. '}${suffix}`;
+  return joined.slice(0, 500);
+}
+
 async function fetchExistingDimensions(): Promise<ExistingDimension[]> {
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/dimensions/popular`);
+    const response = await fetch(`${getInternalApiBaseUrl()}/api/dimensions/popular`);
     if (!response.ok) return [];
 
     const result = await response.json();
@@ -30,11 +47,7 @@ async function fetchExistingDimensions(): Promise<ExistingDimension[]> {
   }
 }
 
-function selectExistingDimensions(
-  selected: unknown,
-  existingDimensions: ExistingDimension[],
-  max = 5
-): string[] {
+function selectExistingDimensions(selected: unknown, existingDimensions: ExistingDimension[], max = 5): string[] {
   if (!Array.isArray(selected) || existingDimensions.length === 0) return [];
 
   const byLowerName = new Map(existingDimensions.map((dimension) => [dimension.name.toLowerCase(), dimension.name]));
@@ -55,55 +68,39 @@ function selectExistingDimensions(
   return normalized;
 }
 
-// AI-powered content analysis
-async function analyzeContentWithAI(
-  title: string,
-  description: string,
-  contentType: string,
-  existingDimensions: ExistingDimension[]
-) {
+async function analyzeContentWithAI(title: string, description: string, contentType: string, existingDimensions: ExistingDimension[]) {
   try {
     const availableDimensionsBlock = existingDimensions.length > 0
-      ? existingDimensions
-          .map((dimension) => `- ${dimension.name}${dimension.description ? `: ${dimension.description}` : ''}`)
-          .join('\n')
+      ? existingDimensions.map((dimension) => `- ${dimension.name}${dimension.description ? `: ${dimension.description}` : ''}`).join('\n')
       : '- No existing dimensions available. Return an empty dimensions array.';
+
     const prompt = `Analyze this ${contentType} content and provide classification.
 
 Title: "${title}"
 Description: "${description}"
 
-CRITICAL — nodeDescription rules (max 280 chars):
-1. Say WHAT this literally is: "Podcast episode where…", "Talk by…", "Interview with…", "Video essay on…"
-2. Name people by their role: the channel/host is the creator, anyone in the title is likely the guest or subject.
-3. State the actual claim or thesis from the title — don't paraphrase into vague abstractions.
-4. End with why it's interesting or important — one concrete phrase.
-5. ABSOLUTELY FORBIDDEN: "discusses", "explores", "examines", "talks about", "delves into", "emphasizing the need for". State things directly.
+CRITICAL — nodeDescription rules (max 500 chars):
+1. Write natural prose, not labels or a checklist.
+2. Make clear what this literally is: "Podcast episode where…", "Talk by…", "Interview with…", "Video essay on…"
+3. Name people by their role: the channel/host is the creator, anyone in the title is likely the guest or subject.
+4. State the actual claim or thesis from the title.
+5. Make clear why it belongs in the graph. If that cannot be inferred, say so naturally.
+6. Make the workflow status clear. If unknown, say naturally that it has not been reviewed yet.
+7. ABSOLUTELY FORBIDDEN: "discusses", "explores", "examines", "talks about", "delves into", "emphasizing the need for", "insightful for understanding", "relevant to".
 
-DIMENSION SELECTION (critical):
+DIMENSION SELECTION:
 You must select 0-3 dimensions from the list below.
 Do NOT invent new dimension names.
-Pick only dimensions that genuinely fit this content.
-If nothing fits, return an empty array.
 
 Available dimensions:
 ${availableDimensionsBlock}
 
-Examples:
-- Title: "Dario Amodei — We are near the end of the exponential" / Channel: Dwarkesh Patel
-  GOOD: "Dwarkesh Patel interview with Anthropic CEO Dario Amodei — argues we're nearing the end of exponential AI scaling. Key signal for what the next phase of AI development looks like."
-  BAD: "By Dario Amodei — discusses reaching the limits of exponential growth in AI, emphasizing the need for a critical perspective."
-
-- Title: "The spell of language models" / Channel: Andrej Karpathy
-  GOOD: "Karpathy talk on how LLMs work under the hood — tokenization, attention, and why they feel like magic but aren't. Essential mental model for anyone building with LLMs."
-  BAD: "By Andrej Karpathy — explores the nature of language models and their capabilities."
-
-Respond with ONLY valid JSON (no markdown, no code blocks):
+Respond with ONLY valid JSON:
 {
-  "enhancedDescription": "A comprehensive summary (3-6 paragraphs, 800-1500 chars). Cover key points, arguments, takeaways.",
-  "nodeDescription": "<your 280-char description following the rules above>",
-  "dimensions": ["existing-dimension-1", "existing-dimension-2"],
-  "reasoning": "Brief explanation of classification choices"
+  "enhancedDescription": "A comprehensive summary (3-6 paragraphs, 800-1500 chars).",
+  "nodeDescription": "<your natural description>",
+  "dimensions": ["existing-dimension-1"],
+  "reasoning": "Brief explanation"
 }`;
 
     const response = await generateText({
@@ -112,22 +109,17 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       maxOutputTokens: 800
     });
 
-    let content = response.text || '{}';
-
-    // Clean up the response - remove markdown code blocks if present
-    content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-
+    const content = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const result = JSON.parse(content);
 
     return {
       enhancedDescription: result.enhancedDescription || description,
-      nodeDescription: typeof result.nodeDescription === 'string' ? result.nodeDescription.slice(0, 280) : undefined,
+      nodeDescription: typeof result.nodeDescription === 'string' ? result.nodeDescription.slice(0, 500) : undefined,
       dimensions: selectExistingDimensions(result.dimensions, existingDimensions, 5),
       reasoning: result.reasoning || 'AI analysis completed'
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'unknown error';
-    console.warn('YouTube analysis fallback (using default description):', message);
+    console.warn('YouTube analysis fallback (using default description):', error);
     return {
       enhancedDescription: description,
       nodeDescription: undefined,
@@ -142,29 +134,21 @@ async function summariseTranscript(title: string, transcript: string): Promise<s
     return null;
   }
 
-  // Limit transcript length to keep token costs manageable
-  const MAX_CHARS = 16000;
-  let excerpt = transcript.trim();
-  if (excerpt.length > MAX_CHARS) {
-    const head = excerpt.slice(0, MAX_CHARS / 2);
-    const tail = excerpt.slice(-MAX_CHARS / 2);
-    excerpt = `${head}\n[...]\n${tail}`;
-  }
-
-  const prompt = `You are summarising a long-form recording for a knowledge graph entry. Title: "${title}".
-
-Using the transcript excerpt below, write a concise 3-4 sentence summary covering the main themes, notable claims, and outcomes. If specific terms, frameworks, or memorable lines appear, mention them. Keep the tone factual (no marketing language). If the excerpt appears truncated, note that the summary is based on the portion provided.
-
-Transcript excerpt:
-"""
-${excerpt}
-"""
-`;
+  const excerpt = transcript.trim().length > 16000
+    ? `${transcript.trim().slice(0, 8000)}\n[...]\n${transcript.trim().slice(-8000)}`
+    : transcript.trim();
 
   try {
     const response = await generateText({
       model: openai('gpt-4o-mini'),
-      prompt,
+      prompt: `You are summarising a long-form recording for a knowledge graph entry. Title: "${title}".
+
+Using the transcript excerpt below, write a concise 3-4 sentence summary covering the main themes, notable claims, and outcomes. Keep the tone factual.
+
+Transcript excerpt:
+"""
+${excerpt}
+"""`,
       maxOutputTokens: 400
     });
     return response.text?.trim() || null;
@@ -179,23 +163,17 @@ export const youtubeExtractTool = tool({
   inputSchema: z.object({
     url: z.string().describe('The YouTube video URL to add to knowledge base'),
     title: z.string().optional().describe('Custom title (auto-generated if not provided)'),
-    dimensions: z.array(z.string()).min(1).max(5).optional().describe('Dimension tags to apply to the created node (locked dimensions first)')
+    dimensions: z.array(z.string()).min(1).max(5).optional().describe('Dimension tags to apply to the created node')
   }),
   execute: async ({ url, title, dimensions }) => {
     console.log('🎯 YouTubeExtract tool called with URL:', url);
     try {
-      // Validate YouTube URL
       if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-        return {
-          success: false,
-          error: 'Invalid YouTube URL format',
-          data: null
-        };
+        return { success: false, error: 'Invalid YouTube URL format', data: null };
       }
 
       let result: { success: boolean; source?: string; metadata?: any; error?: string };
-      
-      console.log('📝 Using TypeScript yt-dlp extractor');
+
       try {
         const extractionResult = await extractYouTube(url);
         result = {
@@ -215,98 +193,81 @@ export const youtubeExtractTool = tool({
           error: extractionResult.error
         };
       } catch (error: any) {
-        result = { 
-          success: false, 
-          error: error.message || 'TypeScript extraction failed' 
-        };
+        result = { success: false, error: error.message || 'TypeScript extraction failed' };
       }
 
       if (!result.success || !result.source) {
-        return {
-          success: false,
-          error: result.error || 'Failed to extract YouTube content',
-          data: null
-        };
+        return { success: false, error: result.error || 'Failed to extract YouTube content', data: null };
       }
 
-      console.log('🎯 YouTube extraction successful, analyzing with AI...');
-
-      // Step 2: AI Analysis for enhanced metadata
       const existingDimensions = await fetchExistingDimensions();
       const aiAnalysis = await analyzeContentWithAI(
-        result.metadata?.video_title || 'YouTube Video', 
-        `Video by ${result.metadata?.channel_name || 'Unknown Channel'}`, 
+        result.metadata?.video_title || 'YouTube Video',
+        `Video by ${result.metadata?.channel_name || 'Unknown Channel'}`,
         'youtube',
         existingDimensions
       );
 
-      // Step 3: Create node with extracted content and AI analysis
       const nodeTitle = title || result.metadata?.video_title || `YouTube Video ${url.split('/').pop()?.split('?')[0]}`;
       const transcriptSummary = await summariseTranscript(nodeTitle, result.source);
-
       const suppliedDimensions = Array.isArray(dimensions) ? dimensions : [];
-      let trimmedDimensions = suppliedDimensions
-        .map(dim => (typeof dim === 'string' ? dim.trim() : ''))
-        .filter(Boolean);
-
-      trimmedDimensions = trimmedDimensions.slice(0, 5);
-      const finalDimensions = trimmedDimensions.length > 0
-        ? trimmedDimensions
+      const finalDimensions = suppliedDimensions.slice(0, 5).length > 0
+        ? suppliedDimensions.slice(0, 5)
         : (aiAnalysis?.dimensions || []).slice(0, 5);
+      const nodeDescription = ensureNodeDescription(
+        aiAnalysis?.nodeDescription,
+        transcriptSummary || `YouTube video by ${result.metadata?.channel_name || 'an unknown creator'} about ${nodeTitle}`
+      );
 
-      const createResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/nodes`, {
+      const createResponse = await fetch(`${getInternalApiBaseUrl()}/api/nodes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: nodeTitle,
-          description: aiAnalysis?.nodeDescription,
+          description: nodeDescription,
           source: result.source,
           link: url,
           dimensions: finalDimensions,
           metadata: {
-            source: 'youtube',
-            video_id: result.metadata?.video_id,
-            channel_name: result.metadata?.channel_name,
-            channel_url: result.metadata?.channel_url,
-            thumbnail_url: result.metadata?.thumbnail_url,
-            transcript_length: result.metadata?.transcript_length,
-            total_segments: result.metadata?.total_segments,
-            language: result.metadata?.language,
-            extraction_method: result.metadata?.extraction_method,
-            ai_analysis: aiAnalysis?.reasoning,
-            summary_origin: transcriptSummary ? 'transcript_summary' : 'metadata_description',
-            refined_at: new Date().toISOString()
+            type: 'youtube',
+            state: 'not_processed',
+            captured_method: 'youtube_extract',
+            captured_by: 'agent',
+            source_metadata: {
+              video_id: result.metadata?.video_id,
+              channel_name: result.metadata?.channel_name,
+              channel_url: result.metadata?.channel_url,
+              thumbnail_url: result.metadata?.thumbnail_url,
+              transcript_length: result.metadata?.transcript_length,
+              total_segments: result.metadata?.total_segments,
+              language: result.metadata?.language,
+              extraction_method: result.metadata?.extraction_method,
+              ai_analysis: aiAnalysis?.reasoning,
+              summary_origin: transcriptSummary ? 'transcript_summary' : 'metadata_description',
+              refined_at: new Date().toISOString()
+            }
           }
         })
       });
 
       const createResult = await createResponse.json();
-
       if (!createResponse.ok) {
-        return {
-          success: false,
-          error: createResult.error || 'Failed to create item',
-          data: null
-        };
+        return { success: false, error: createResult.error || 'Failed to create item', data: null };
       }
 
-      console.log('🎯 YouTubeExtract completed successfully');
-
-      // Use actual assigned dimensions from API response (includes auto-assigned locked + keywords)
       const actualDimensions: string[] = createResult.data?.dimensions || finalDimensions || [];
       const formattedNode = createResult.data?.id
         ? formatNodeForChat({ id: createResult.data.id, title: nodeTitle, dimensions: actualDimensions })
         : nodeTitle;
-      const dimsDisplay = actualDimensions.length > 0 ? actualDimensions.join(', ') : 'none';
 
       return {
         success: true,
-        message: `Added ${formattedNode} with dimensions: ${dimsDisplay}`,
+        message: `Added ${formattedNode} with dimensions: ${actualDimensions.length > 0 ? actualDimensions.join(', ') : 'none'}`,
         data: {
           nodeId: createResult.data?.id,
           title: nodeTitle,
           contentLength: result.source.length,
-          url: url,
+          url,
           dimensions: actualDimensions
         }
       };

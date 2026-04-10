@@ -7,6 +7,7 @@ import { scoreNodeSearchMatch } from '@/services/database/searchRanking';
 
 type QueryNodeFilters = {
   dimensions?: string[];
+  contextId?: number;
   search?: string;
   limit?: number;
   createdAfter?: string;
@@ -20,6 +21,7 @@ export const queryNodesTool = tool({
   inputSchema: z.object({
     filters: z.object({
       dimensions: z.array(z.string()).describe('Filter by dimensions (e.g., ["research", "ai", "technology"]). Replaces old type/stage filtering.').optional(),
+      contextId: z.number().int().positive().describe('Optional primary context filter.').optional(),
       search: z.string().describe('Search term to match against node title, description, or source').optional(),
       limit: z.number().min(1).max(50).default(10).describe('Maximum number of results to return'),
       createdAfter: z.string().optional().describe('ISO date (YYYY-MM-DD). Only return nodes created on or after this date.'),
@@ -82,6 +84,7 @@ export const queryNodesTool = tool({
         const nodesPromise: Promise<Node[] | undefined> = nodeService.getNodes({
           limit,
           dimensions: queryFilters.dimensions,
+          contextId: queryFilters.contextId,
           search: queryFilters.search,
           searchMode: searchTerm ? 'hybrid' : 'standard',
           createdAfter: queryFilters.createdAfter,

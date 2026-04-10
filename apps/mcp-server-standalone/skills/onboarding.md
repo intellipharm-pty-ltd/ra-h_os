@@ -3,7 +3,7 @@ name: Onboarding
 description: "Onboard a new user by mapping goals, projects, worldview, and preferences into a strong initial graph."
 when_to_use: "New user setup or major reset of account context."
 when_not_to_use: "User asks for a narrow tactical operation only."
-success_criteria: "User has an initial hub-node structure and clear next steps for graph growth."
+success_criteria: "User has an initial context structure, anchor candidates, and clear next steps for graph growth."
 ---
 
 # Onboarding
@@ -22,13 +22,14 @@ Understand the user deeply enough to bootstrap a useful externalized context gra
 
 ## Graph Bootstrap
 
-1. Propose 3-6 hub nodes with clear rationale.
-2. Propose starter dimensions that reflect real domains.
-3. Create initial edges between hubs and active projects.
-4. Confirm with user before writing.
+1. Propose 3-6 primary contexts with clear rationale.
+2. Identify one strong anchor candidate per context.
+3. Propose starter dimensions as secondary metadata and filters.
+4. Create initial edges between anchor nodes and active project nodes.
+5. Confirm with user before writing.
 
 ## Output
 
-- Initial hub map
+- Initial context map
 - Suggested first write actions
 - Suggested weekly maintenance rhythm

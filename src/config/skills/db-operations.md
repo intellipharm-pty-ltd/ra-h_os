@@ -8,7 +8,7 @@ description: "Use for graph read, write, connect, classify, or traverse operatio
 ## Core Rules
 
 1. Search before create to avoid duplicates.
-2. Every create/update must include an explicit description of WHAT the thing is and WHY it matters.
+2. Every create/update should aim for a natural description that makes clear what the thing is, why it belongs in the graph, and workflow status.
 3. Use event dates when known (when it happened, not when saved).
 4. Apply dimensions deliberately; prefer existing dimensions over creating noisy new ones.
 5. Create edges when relationships are meaningful; edge explanations should read as a sentence.
@@ -16,9 +16,10 @@ description: "Use for graph read, write, connect, classify, or traverse operatio
 ## Write Quality Contract
 
 - `title`: clear and specific.
-- `description`: concrete object-level description, not vague summaries.
-- `source`: full verbatim or canonical content of the node (transcript, article text, book passage, user's thoughts). This is what gets chunked and embedded for semantic search.
+- `description`: natural prose, not labels. It should still make what / why / status clear when possible.
+- `source`: full verbatim or canonical content of the node (transcript, article text, book passage, user's thoughts). This is what gets chunked and embedded for semantic search. For user-authored ideas or dictated notes, preserve the user's original wording with minimal cleanup.
 - `link`: external source URL only.
+- `metadata`: prefer canonical keys `type`, `state`, `captured_method`, `captured_by`, and `source_metadata`.
 - Derived analysis, briefs, and research notes should be stored in a separate linked node, not appended to the source node.
 
 ## Execution Pattern
@@ -27,9 +28,11 @@ description: "Use for graph read, write, connect, classify, or traverse operatio
 2. Decide: create vs update vs connect.
 3. Execute minimum required writes.
 4. Verify result reflects user intent exactly.
+5. If description framing was materially inferred, complete the write first and then invite one concise user feedback pass instead of blocking creation.
 
 ## Do Not
 
 - Create duplicate nodes when an update is correct.
 - Write vague descriptions ("discusses", "explores", "is about").
+- Replace a user's raw idea/source with a thin summary.
 - Create weak or directionless edges.

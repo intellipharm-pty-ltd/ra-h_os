@@ -1,47 +1,83 @@
 'use strict';
 
 const { query, transaction, getDb } = require('./sqlite-client');
+const contextService = require('./contextService');
 
-function normalizeDimensionName(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ');
-}
-
-function getUnknownDimensions(dimensions) {
-  if (!Array.isArray(dimensions) || dimensions.length === 0) return [];
-
-  const normalized = dimensions
-    .map(normalizeDimensionName)
-    .filter(Boolean);
-
-  if (normalized.length === 0) return [];
-
-  const placeholders = normalized.map(() => '?').join(', ');
-  const rows = query(`SELECT name FROM dimensions WHERE name IN (${placeholders})`, normalized);
-  const existing = new Set(rows.map(row => normalizeDimensionName(row.name)));
-
-  return normalized.filter(value => !existing.has(value));
-}
-
-function formatUnknownDimensionsError(values) {
-  if (values.length === 1) {
-    return `Unknown dimension: "${values[0]}". Create it first or use an existing dimension.`;
+function parseMetadata(metadata) {
+  if (!metadata) return {};
+  if (typeof metadata === 'string') {
+    try {
+      const parsed = JSON.parse(metadata);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {};
+    } catch {
+      return {};
+    }
   }
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...metadata } : {};
+}
 
-  return `Unknown dimensions: ${values.map(value => `"${value}"`).join(', ')}. Create them first or use existing dimensions.`;
+function normalizeString(value) {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildCanonicalMetadata({ existing, metadata }) {
+  const prior = parseMetadata(existing);
+  const incoming = parseMetadata(metadata);
+  const sourceMetadata = {
+    ...(prior.source_metadata && typeof prior.source_metadata === 'object' ? prior.source_metadata : {}),
+    ...(incoming.source_metadata && typeof incoming.source_metadata === 'object' ? incoming.source_metadata : {}),
+  };
+
+  const merged = {
+    ...prior,
+    ...incoming,
+    state: incoming.state === 'processed' ? 'processed' : (prior.state === 'processed' ? 'processed' : 'not_processed'),
+    captured_by: incoming.captured_by || prior.captured_by || 'human',
+    source_metadata: sourceMetadata,
+  };
+
+  const type = normalizeString(incoming.type) || normalizeString(prior.type);
+  const capturedMethod = normalizeString(incoming.captured_method) || normalizeString(prior.captured_method);
+
+  if (type) merged.type = type;
+  else delete merged.type;
+
+  if (capturedMethod) merged.captured_method = capturedMethod;
+  else delete merged.captured_method;
+
+  return merged;
+}
+
+function mapNodeRow(row) {
+  return {
+    ...row,
+    dimensions: JSON.parse(row.dimensions_json || '[]'),
+    metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null,
+    context: row.context_json ? JSON.parse(row.context_json) : null,
+    dimensions_json: undefined,
+    context_json: undefined,
+  };
 }
 
 /**
  * Get nodes with optional filtering.
  */
 function getNodes(filters = {}) {
-  const { dimensions, search, limit = 100, offset = 0 } = filters;
+  const { dimensions, search, limit = 100, offset = 0, contextId } = filters;
 
   let sql = `
     SELECT n.id, n.title, n.description, n.source, n.link, n.event_date, n.metadata,
-           n.created_at, n.updated_at,
+           n.created_at, n.updated_at, n.context_id,
            COALESCE((SELECT JSON_GROUP_ARRAY(d.dimension)
-                     FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json
+                     FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json,
+           CASE
+             WHEN c.id IS NULL THEN NULL
+             ELSE json_object('id', c.id, 'name', c.name, 'description', c.description, 'icon', c.icon)
+           END as context_json
     FROM nodes n
+    LEFT JOIN contexts c ON c.id = n.context_id
     WHERE 1=1
   `;
   const params = [];
@@ -60,6 +96,10 @@ function getNodes(filters = {}) {
   if (search) {
     sql += ` AND (n.title LIKE ? COLLATE NOCASE OR n.description LIKE ? COLLATE NOCASE OR n.source LIKE ? COLLATE NOCASE)`;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (contextId !== undefined) {
+    sql += ' AND n.context_id = ?';
+    params.push(contextId);
   }
 
   // Sort by search relevance or updated_at
@@ -85,12 +125,7 @@ function getNodes(filters = {}) {
 
   const rows = query(sql, params);
 
-  return rows.map(row => ({
-    ...row,
-    dimensions: JSON.parse(row.dimensions_json || '[]'),
-    metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null,
-    dimensions_json: undefined
-  }));
+  return rows.map(mapNodeRow);
 }
 
 /**
@@ -99,10 +134,15 @@ function getNodes(filters = {}) {
 function getNodeById(id) {
   const sql = `
     SELECT n.id, n.title, n.description, n.source, n.link, n.event_date, n.metadata,
-           n.created_at, n.updated_at,
+           n.created_at, n.updated_at, n.context_id,
            COALESCE((SELECT JSON_GROUP_ARRAY(d.dimension)
-                     FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json
+                     FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json,
+           CASE
+             WHEN c.id IS NULL THEN NULL
+             ELSE json_object('id', c.id, 'name', c.name, 'description', c.description, 'icon', c.icon)
+           END as context_json
     FROM nodes n
+    LEFT JOIN contexts c ON c.id = n.context_id
     WHERE n.id = ?
   `;
 
@@ -110,12 +150,7 @@ function getNodeById(id) {
   if (rows.length === 0) return null;
 
   const row = rows[0];
-  return {
-    ...row,
-    dimensions: JSON.parse(row.dimensions_json || '[]'),
-    metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null,
-    dimensions_json: undefined
-  };
+  return mapNodeRow(row);
 }
 
 /**
@@ -129,6 +164,134 @@ function sanitizeTitle(title) {
   return clean.slice(0, 160);
 }
 
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'i',
+  'in', 'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this',
+  'to', 'was', 'with', 'you', 'your'
+]);
+
+function normalizeText(value) {
+  if (typeof value !== 'string') return '';
+  return value.toLowerCase().replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function tokenize(value) {
+  return normalizeText(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
+}
+
+function uniqueTokens(values) {
+  return [...new Set(values.flatMap((value) => tokenize(value || '')))];
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value ?? {});
+  } catch {
+    return '';
+  }
+}
+
+function fetchContextCandidates() {
+  return query(`
+    WITH context_counts AS (
+      SELECT c.id, c.name, c.description, COUNT(n.id) AS count
+      FROM contexts c
+      LEFT JOIN nodes n ON n.context_id = c.id
+      GROUP BY c.id
+    ),
+    ranked_anchors AS (
+      SELECT
+        c.id AS context_id,
+        n.title AS anchor_title,
+        n.description AS anchor_description,
+        ROW_NUMBER() OVER (
+          PARTITION BY c.id
+          ORDER BY COUNT(e.id) DESC, n.updated_at DESC, n.id ASC
+        ) AS anchor_rank
+      FROM contexts c
+      LEFT JOIN nodes n ON n.context_id = c.id
+      LEFT JOIN edges e ON (e.from_node_id = n.id OR e.to_node_id = n.id)
+      GROUP BY c.id, n.id
+    )
+    SELECT
+      cc.id,
+      cc.name,
+      cc.description,
+      cc.count,
+      ra.anchor_title,
+      ra.anchor_description
+    FROM context_counts cc
+    LEFT JOIN ranked_anchors ra
+      ON ra.context_id = cc.id
+     AND ra.anchor_rank = 1
+    ORDER BY cc.name COLLATE NOCASE ASC
+  `).map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    description: row.description ?? null,
+    count: Number(row.count ?? 0),
+    anchor_title: row.anchor_title ?? null,
+    anchor_description: row.anchor_description ?? null,
+  }));
+}
+
+function scoreContextCandidate(candidate, input) {
+  const titleText = normalizeText(input.title || '');
+  const descriptionText = normalizeText(input.description || '');
+  const sourceText = normalizeText(String(input.source || '').slice(0, 4000));
+  const metadataText = normalizeText(safeStringify(input.metadata));
+  const dimensionTokens = uniqueTokens(input.dimensions || []);
+  const contextName = normalizeText(candidate.name);
+  const contextNameTokens = tokenize(candidate.name);
+  const contextDescriptorTokens = uniqueTokens([
+    candidate.description,
+    candidate.anchor_title,
+    candidate.anchor_description,
+  ]);
+
+  let score = 0;
+  if (contextName && (titleText.includes(contextName) || descriptionText.includes(contextName))) score += 80;
+  if (contextName && sourceText.includes(contextName)) score += 40;
+
+  for (const token of contextNameTokens) {
+    if (dimensionTokens.includes(token)) score += 30;
+    if (titleText.includes(token)) score += 16;
+    if (descriptionText.includes(token)) score += 12;
+    if (sourceText.includes(token)) score += 6;
+    if (metadataText.includes(token)) score += 4;
+  }
+
+  for (const token of contextDescriptorTokens) {
+    if (dimensionTokens.includes(token)) score += 8;
+    if (titleText.includes(token)) score += 4;
+    if (descriptionText.includes(token)) score += 3;
+    if (sourceText.includes(token)) score += 2;
+  }
+
+  return score;
+}
+
+function inferBestContextIdForNode(input) {
+  const contexts = fetchContextCandidates();
+  if (contexts.length === 0) return null;
+
+  const ranked = contexts
+    .map((context) => ({ context, score: scoreContextCandidate(context, input) }))
+    .sort((a, b) => b.score - a.score || (b.context.count - a.context.count) || a.context.id - b.context.id);
+
+  const best = ranked[0];
+  if (!best) return null;
+  if (best.score > 0) return best.context.id;
+
+  const research = contexts.find((context) => context.name.trim().toLowerCase() === 'research');
+  if (research) return research.id;
+
+  return best.context.id;
+}
+
 /**
  * Create a new node.
  */
@@ -140,26 +303,25 @@ function createNode(nodeData) {
     link,
     event_date,
     dimensions = [],
-    metadata = {}
+    metadata = {},
+    context_id
   } = nodeData;
 
   const title = sanitizeTitle(rawTitle);
-  const unknownDimensions = getUnknownDimensions(dimensions);
-  if (unknownDimensions.length > 0) {
-    throw new Error(formatUnknownDimensionsError(unknownDimensions));
-  }
 
+  const canonicalMetadata = buildCanonicalMetadata({ metadata });
   const now = new Date().toISOString();
   const db = getDb();
 
-  const sourceToStore = source && source.trim()
-    ? source
-    : [title, description].filter(Boolean).join('\n\n').trim() || null;
+  const sourceToStore = source ?? ([title, description].filter(Boolean).join('\n\n').trim() || null);
+  const effectiveContextId = context_id == null
+    ? inferBestContextIdForNode({ title, description, source: sourceToStore, dimensions, metadata: canonicalMetadata })
+    : context_id;
 
   const nodeId = transaction(() => {
     const stmt = db.prepare(`
-      INSERT INTO nodes (title, description, source, link, event_date, metadata, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO nodes (title, description, source, link, event_date, metadata, context_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -168,7 +330,8 @@ function createNode(nodeData) {
       sourceToStore,
       link ?? null,
       event_date ?? null,
-      JSON.stringify(metadata),
+      JSON.stringify(canonicalMetadata),
+      effectiveContextId ?? null,
       now,
       now
     );
@@ -193,7 +356,6 @@ function createNode(nodeData) {
 
 /**
  * Update an existing node.
- * Source-first update path.
  */
 function updateNode(id, updates, options = {}) {
   const { title, description, source, link, event_date, dimensions, metadata } = updates;
@@ -206,12 +368,9 @@ function updateNode(id, updates, options = {}) {
     throw new Error(`Node with ID ${id} not found. Use rah_search_nodes to find nodes by keyword.`);
   }
 
-  if (Array.isArray(dimensions)) {
-    const unknownDimensions = getUnknownDimensions(dimensions);
-    if (unknownDimensions.length > 0) {
-      throw new Error(formatUnknownDimensionsError(unknownDimensions));
-    }
-  }
+  const mergedMetadata = metadata !== undefined
+    ? buildCanonicalMetadata({ existing: existing.metadata, metadata })
+    : undefined;
 
   transaction(() => {
     const setFields = [];
@@ -237,9 +396,13 @@ function updateNode(id, updates, options = {}) {
       setFields.push('event_date = ?');
       params.push(event_date);
     }
-    if (metadata !== undefined) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'context_id')) {
+      setFields.push('context_id = ?');
+      params.push(updates.context_id ?? null);
+    }
+    if (mergedMetadata !== undefined) {
       setFields.push('metadata = ?');
-      params.push(JSON.stringify(metadata));
+      params.push(JSON.stringify(mergedMetadata));
     }
 
     // Always update timestamp
@@ -286,7 +449,7 @@ function getNodeCount() {
 
 /**
  * Get knowledge graph context overview.
- * Returns stats, hub nodes, dimensions, and recent activity.
+ * Returns stats, contexts, hub nodes, dimensions, and recent activity.
  */
 function getContext() {
   const nodeCount = query('SELECT COUNT(*) as count FROM nodes')[0].count;
@@ -315,7 +478,8 @@ function getContext() {
   `);
 
   return {
-    stats: { nodeCount, edgeCount, dimensionCount: dimensions.length },
+    stats: { nodeCount, edgeCount, dimensionCount: dimensions.length, contextCount: contextService.listContexts().length },
+    contexts: contextService.listContexts(),
     dimensions,
     recentNodes,
     hubNodes

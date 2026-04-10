@@ -3,6 +3,7 @@
 import { Node } from '@/types/database';
 import { getNodeIcon } from '@/utils/nodeIcons';
 import { useDimensionIcons } from '@/context/DimensionIconsContext';
+import { getNodeProcessedState } from '@/services/nodes/metadata';
 
 interface GridViewProps {
   nodes: Node[];
@@ -43,7 +44,11 @@ export default function GridView({ nodes, onNodeClick }: GridViewProps) {
         gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
         gap: '12px'
       }}>
-        {nodes.map(node => (
+        {nodes.map(node => {
+          const processedState = getNodeProcessedState(node.metadata);
+          const isProcessed = processedState === 'processed';
+
+          return (
             <button
               key={node.id}
               onClick={() => onNodeClick(node.id)}
@@ -51,13 +56,14 @@ export default function GridView({ nodes, onNodeClick }: GridViewProps) {
                 display: 'flex',
                 flexDirection: 'column',
                 padding: '16px',
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: isProcessed ? 'rgba(34, 58, 42, 0.45)' : '#0a0a0a',
+                border: `1px solid ${isProcessed ? 'rgba(74, 222, 128, 0.28)' : '#1a1a1a'}`,
                 borderRadius: '8px',
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'all 0.2s',
-                minHeight: '140px'
+                minHeight: '140px',
+                opacity: isProcessed ? 0.84 : 1
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = '#111';
@@ -101,6 +107,15 @@ export default function GridView({ nodes, onNodeClick }: GridViewProps) {
                 }}>
                   {node.title || 'Untitled'}
                 </div>
+              </div>
+
+              <div style={{
+                marginBottom: '10px',
+                fontSize: '10px',
+                color: isProcessed ? '#86efac' : '#888',
+                textTransform: 'lowercase'
+              }}>
+                {processedState}
               </div>
 
               {/* Description or Content Preview */}
@@ -154,7 +169,8 @@ export default function GridView({ nodes, onNodeClick }: GridViewProps) {
                 </div>
               )}
             </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

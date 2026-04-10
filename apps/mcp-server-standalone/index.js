@@ -31,13 +31,14 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { initDatabase, getDatabasePath, closeDatabase, getDb, query } = require('./services/sqlite-client');
 const nodeService = require('./services/nodeService');
 const edgeService = require('./services/edgeService');
+const contextService = require('./services/contextService');
 const dimensionService = require('./services/dimensionService');
 const skillService = require('./services/skillService');
 
 // Server info
 const serverInfo = {
   name: 'ra-h-standalone',
-  version: '1.8.0'
+  version: '1.10.1'
 };
 
 function buildInstructions() {
@@ -58,7 +59,7 @@ function buildInstructions() {
   return `Today's date: ${now}. RA-H is the user's personal knowledge graph — local SQLite, fully on-device.
 
 ## Quick start
-1. Call getContext for orientation (stats, hubs, dimensions).
+1. Call getContext for orientation (stats, contexts, dimensions, anchors/hubs).
 2. For simple tasks, tool descriptions have everything you need.
 3. For complex tasks, call readSkill("db-operations").
 
@@ -69,6 +70,7 @@ Always search before creating to avoid duplicates.
 Use only existing dimensions returned by getContext or queryDimensions.
 Do not invent new dimensions from node titles, concepts, or phrasing.
 Only call createDimension when the user explicitly instructs you to create a new dimension.
+Use contexts as the primary scope layer. Query contexts before assigning when needed.
 
 ## Available skills
 ${skillIndex}
@@ -83,15 +85,18 @@ const addNodeInputSchema = {
   content: z.string().max(20000).optional().describe('Legacy content field; mapped to source'),
   source: z.string().max(50000).optional().describe('Full source text'),
   link: z.string().url().optional().describe('Source URL'),
-  description: z.string().min(24).max(280).describe('REQUIRED. One-sentence summary: WHAT this is (explicit, concrete) + WHY it matters. No weak verbs (discusses, explores, examines). Example: "Podcast — Lex Fridman interviews Sam Altman on AGI timelines. First public comments since board drama."'),
+  description: z.string().optional().describe('Strongly recommended. Write the description as natural prose, not labels or a checklist. It should make clear what the artifact is and any surrounding context available. RA-H will accept whatever description is provided and will not block the write.'),
+  context_id: z.number().int().positive().nullable().optional().describe('Optional primary context ID.'),
+  context_name: z.string().optional().describe('Optional convenience context name.'),
   dimensions: z.array(z.string()).min(1).max(5).describe('1-5 existing categories. Call queryDimensions first to use existing ones. Do not invent new dimensions.'),
-  metadata: z.record(z.any()).optional().describe('Additional metadata'),
+  metadata: z.record(z.any()).optional().describe('Optional metadata. Prefer canonical keys: type, state, captured_method, captured_by, source_metadata.'),
   chunk: z.string().max(50000).optional().describe('Full source text')
 };
 
 const searchNodesInputSchema = {
   query: z.string().min(1).max(400).describe('Search query'),
   limit: z.number().min(1).max(25).optional().describe('Max results (default 10)'),
+  contextId: z.number().int().positive().optional().describe('Optional primary context filter.'),
   dimensions: z.array(z.string()).max(5).optional().describe('Filter by dimensions'),
   created_after: z.string().optional().describe('ISO date (YYYY-MM-DD). Only return nodes created on or after this date.'),
   created_before: z.string().optional().describe('ISO date (YYYY-MM-DD). Only return nodes created before this date.'),
@@ -107,9 +112,11 @@ const updateNodeInputSchema = {
   id: z.number().int().positive().describe('Node ID'),
   updates: z.object({
     title: z.string().optional().describe('New title'),
-    description: z.string().min(24).max(280).describe('REQUIRED. Explicitly state WHAT this is (podcast, conversation summary, user insight, etc.) + WHY it matters for context grounding. No vague verbs like "discusses/explores/examines".'),
+    description: z.string().optional().describe('Recommended replacement description. Keep it as natural prose that says what this artifact is and any surrounding context available. RA-H will accept whatever description is provided and will not block the write.'),
     content: z.string().optional().describe('Content to APPEND'),
+    source: z.string().optional().describe('Canonical source content for embedding'),
     link: z.string().optional().describe('New link'),
+    context_id: z.number().int().positive().nullable().optional().describe('Primary context ID. Omit to preserve existing context; use null to clear it.'),
     dimensions: z.array(z.string()).optional().describe('New dimensions (replaces existing)'),
     metadata: z.record(z.any()).optional().describe('New metadata')
   }).describe('Fields to update')
@@ -129,6 +136,14 @@ const updateEdgeInputSchema = {
 const queryEdgesInputSchema = {
   nodeId: z.number().int().positive().optional().describe('Find edges for this node'),
   limit: z.number().min(1).max(50).optional().describe('Max edges (default 25)')
+};
+
+const queryContextsInputSchema = {
+  contextId: z.number().int().positive().optional().describe('Exact context ID lookup'),
+  name: z.string().optional().describe('Exact context name lookup'),
+  search: z.string().optional().describe('Case-insensitive search across context names and descriptions'),
+  limit: z.number().min(1).max(100).optional().describe('Maximum number of contexts to return'),
+  includeNodes: z.boolean().optional().describe('Include nodes for an exact single-context lookup')
 };
 
 const listDimensionsInputSchema = {};
@@ -190,26 +205,6 @@ function sanitizeDimensions(raw) {
     if (result.length >= 5) break;
   }
   return result;
-}
-
-function validateExplicitDescription(description) {
-  if (typeof description !== 'string') {
-    return 'Description is required and must be a string.';
-  }
-  const text = description.trim();
-  if (text.length < 24) {
-    return 'Description must be explicit and substantial (at least 24 characters).';
-  }
-  const weakPatterns = /\b(discusses|explores|examines|talks about|is about|delves into)\b/i;
-  const explicitEntityPatterns = /\b(article|artifact|book|brief|claim|company|concept|conversation|dataset|decision|dimension|document|episode|essay|event|guide|idea|insight|interview|lesson|link|node|note|paper|person|plan|placeholder|podcast|post|presentation|project|question|record|research|resource|skill|source|status|summary|talk|target|test node|thread|tool|transcript|tweet|update|video|website|workflow)\b/i;
-  const uncertaintyPatterns = /\b(likely|probably|possibly|appears to be|seems to be|unclear|uncertain)\b/i;
-  if (weakPatterns.test(text)) {
-    return 'Description is too vague. State exactly what this is and why it matters.';
-  }
-  if (!explicitEntityPatterns.test(text) && !uncertaintyPatterns.test(text)) {
-    return 'Description must explicitly identify what this thing is, or state uncertainty explicitly.';
-  }
-  return null;
 }
 
 // FTS5 helpers
@@ -319,7 +314,7 @@ async function main() {
     'getContext',
     {
       title: 'Get RA-H context',
-      description: 'Get knowledge graph overview: stats, hub nodes (most connected), dimensions, recent activity, and available skills. Call this first to orient yourself. For deeper operating policy, follow up with readSkill("db-operations").',
+      description: 'Get knowledge graph overview: stats, contexts, hub nodes (secondary diagnostics), dimensions, recent activity, and available skills. Call this first to orient yourself. For deeper operating policy, follow up with readSkill("db-operations").',
       inputSchema: {}
     },
     async () => {
@@ -340,7 +335,7 @@ async function main() {
         };
       }
 
-      const summary = `Graph: ${context.stats.nodeCount} nodes, ${context.stats.edgeCount} edges, ${context.stats.dimensionCount} dimensions, ${skills.length} skills.`;
+      const summary = `Graph: ${context.stats.contextCount || 0} contexts, ${context.stats.nodeCount} nodes, ${context.stats.edgeCount} edges, ${context.stats.dimensionCount} dimensions, ${skills.length} skills.`;
       return {
         content: [{ type: 'text', text: summary }],
         structuredContent: context
@@ -354,24 +349,28 @@ async function main() {
     'createNode',
     {
       title: 'Add RA-H node',
-      description: 'Create a new node. Always search first (queryNodes) to avoid duplicates. Title: max 160 chars, clear and descriptive. Description is REQUIRED and must be explicit about what the thing is and why it matters for contextual grounding. Use "link" ONLY for external content (URL, video, article) — omit for synthesis/ideas derived from existing nodes. "source" = verbatim or canonical content for embedding. Legacy "content" and "chunk" are mapped to source for compatibility. Assign 1-5 existing dimensions — call queryDimensions first to use existing ones. Do not invent new dimensions.',
+      description: 'Create a new node. Always search first (queryNodes) to avoid duplicates. Set context explicitly when clear; otherwise RA-H will infer the best-fit context automatically on create. Title: max 160 chars, clear and descriptive. Description is REQUIRED and should be natural prose that makes clear what the thing is, why it belongs in the graph, and workflow status. Use "link" ONLY for external content (URL, video, article) — omit for synthesis/ideas derived from existing nodes. "source" = verbatim or canonical content for embedding. Legacy "content" and "chunk" are mapped to source for compatibility. Assign 1-5 dimensions — call queryDimensions first to use existing ones.',
       inputSchema: addNodeInputSchema
     },
-    async ({ title, content, source, link, description, dimensions, metadata, chunk }) => {
+    async ({ title, content, source, link, description, context_id, context_name, dimensions, metadata, chunk }) => {
       const normalizedDimensions = sanitizeDimensions(dimensions);
       if (normalizedDimensions.length === 0) {
         throw new Error('At least one dimension is required.');
       }
-      const descriptionError = validateExplicitDescription(description);
-      if (descriptionError) {
-        throw new Error(descriptionError);
+      let resolvedContextId;
+      try {
+        resolvedContextId = contextService.resolveContextId({ context_id, context_name });
+      } catch (error) {
+        log('Warning: invalid explicit context input on createNode; falling back to automatic inference:', error.message);
+        resolvedContextId = undefined;
       }
 
       const node = nodeService.createNode({
         title: title.trim(),
         source: source?.trim() || chunk?.trim() || content?.trim(),
         link: link?.trim(),
-        description: description?.trim(),
+        description: typeof description === 'string' ? description.trim() : description,
+        context_id: resolvedContextId,
         dimensions: normalizedDimensions,
         metadata: metadata || {}
       });
@@ -397,11 +396,40 @@ async function main() {
       description: 'Search nodes by keyword across title, description, and source fields. Multi-word queries find nodes containing all words (not exact phrases). Returns up to 25 results (default 10). Call before creating nodes to check for duplicates. Optionally filter by dimensions. NOT for searching source documents (transcripts, articles) — use searchContentEmbeddings for that.',
       inputSchema: searchNodesInputSchema
     },
-    async ({ query: searchQuery, limit = 10, dimensions, created_after, created_before, event_after, event_before }) => {
+    async ({ query: searchQuery, limit = 10, contextId, dimensions, created_after, created_before, event_after, event_before }) => {
       const normalizedDimensions = sanitizeDimensions(dimensions || []);
       const safeLimit = Math.min(Math.max(limit, 1), 25);
       const trimmedQuery = searchQuery.trim();
       const fts = checkFtsAvailability();
+
+      if (contextId) {
+        const nodes = nodeService.getNodes({
+          search: trimmedQuery,
+          limit: safeLimit,
+          contextId,
+          dimensions: normalizedDimensions,
+        });
+
+        const summary = nodes.length === 0
+          ? 'No matching RA-H nodes found in that context.'
+          : `Found ${nodes.length} node(s) in that context.`;
+
+        return {
+          content: [{ type: 'text', text: summary }],
+          structuredContent: {
+            count: nodes.length,
+            nodes: nodes.map((node) => ({
+              id: node.id,
+              title: node.title,
+              source: node.source ?? null,
+              description: node.description ?? null,
+              link: node.link ?? null,
+              dimensions: node.dimensions || [],
+              updated_at: node.updated_at,
+            })),
+          },
+        };
+      }
 
       // Build temporal filter clauses
       const temporalClauses = [];
@@ -596,21 +624,13 @@ async function main() {
     'updateNode',
     {
       title: 'Update RA-H node',
-      description: 'Update an existing node. Description is REQUIRED on every update and must explicitly state WHAT this thing is + WHY it matters for contextual grounding. Source content lives in "source". Legacy "content" and "chunk" are mapped to source for compatibility. Dimensions are REPLACED entirely with the new array. Title, description, and link are overwritten. Call getNodesById first to verify current state before updating.',
+      description: 'Update an existing node. Description is REQUIRED on every update and should be natural prose that makes clear what this thing is, why it belongs in the graph, and workflow status. Source content lives in "source". Legacy "content" and "chunk" are mapped to source for compatibility. Dimensions are REPLACED entirely with the new array. Title, description, and link are overwritten. Call getNodesById first to verify current state before updating.',
       inputSchema: updateNodeInputSchema
     },
     async ({ id, updates }) => {
       if (!updates || Object.keys(updates).length === 0) {
         throw new Error('At least one field must be provided in updates.');
       }
-      if (!updates.description) {
-        throw new Error('Every node update requires an explicit description (WHAT this is + WHY it matters).');
-      }
-      const descriptionError = validateExplicitDescription(updates.description);
-      if (descriptionError) {
-        throw new Error(descriptionError);
-      }
-
       // Map MCP legacy fields to canonical source
       const mappedUpdates = { ...updates };
       if (mappedUpdates.content !== undefined) {
@@ -621,6 +641,11 @@ async function main() {
       }
       delete mappedUpdates.content;
       delete mappedUpdates.chunk;
+      if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'description')) {
+        mappedUpdates.description = typeof mappedUpdates.description === 'string'
+          ? mappedUpdates.description.trim()
+          : mappedUpdates.description;
+      }
 
       const node = nodeService.updateNode(id, mappedUpdates);
 
@@ -730,6 +755,55 @@ async function main() {
         structuredContent: {
           count: dimensions.length,
           dimensions
+        }
+      };
+    }
+  );
+
+  registerToolWithAliases(
+    'queryContexts',
+    {
+      title: 'Query RA-H contexts',
+      description: 'List contexts, inspect a specific context, or search contexts by name/description.',
+      inputSchema: queryContextsInputSchema
+    },
+    async ({ contextId, name, search, limit = 50, includeNodes = false }) => {
+      const normalizedName = typeof name === 'string' ? name.trim().toLowerCase() : '';
+      let contexts = [];
+
+      if (contextId) {
+        const context = contextService.getContextById(contextId);
+        if (context) {
+          contexts = [context];
+        }
+      } else if (normalizedName) {
+        const context = contextService.getContextByName(normalizedName);
+        if (context) {
+          contexts = [context];
+        }
+      } else {
+        const all = contextService.listContexts();
+        contexts = all.filter((context) => {
+          if (search) {
+            const haystack = `${context.name || ''} ${context.description || ''}`.toLowerCase();
+            return haystack.includes(search.trim().toLowerCase());
+          }
+          return true;
+        }).slice(0, Math.min(Math.max(limit, 1), 100));
+      }
+
+      const includeContextNodes = includeNodes && contexts.length === 1 && (contextId || normalizedName);
+      const enriched = contexts.map((context) => {
+        if (!includeContextNodes) return context;
+        const nodes = nodeService.getNodes({ contextId: context.id, limit: 500 });
+        return { ...context, nodes };
+      });
+
+      return {
+        content: [{ type: 'text', text: enriched.length === 0 ? 'No matching contexts found.' : `Found ${enriched.length} context(s).` }],
+        structuredContent: {
+          count: enriched.length,
+          contexts: enriched
         }
       };
     }

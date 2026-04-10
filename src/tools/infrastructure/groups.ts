@@ -40,6 +40,7 @@ export const TOOL_GROUP_ASSIGNMENTS: Record<string, string> = {
   queryDimensions: 'core',
   getDimension: 'core',
   queryDimensionNodes: 'core',
+  queryContexts: 'core',
   searchContentEmbeddings: 'core',
 
   // Orchestration: Web search and reasoning

@@ -41,7 +41,7 @@ Restart Claude. Done.
 ## What to Expect
 
 Once connected, Claude will:
-- **Call `getContext` first** to orient itself (stats, hub nodes, dimensions, skills)
+- **Call `getContext` first** to orient itself (stats, contexts, hub nodes, dimensions, skills)
 - **Proactively capture knowledge** — when a new insight, decision, person, or reference surfaces, it proposes a specific node (title, dimensions, description) so you can approve with minimal friction
 - **Read skills for complex tasks** — skills are editable and shared across internal + external agents
 - **Search before creating** to avoid duplicates
@@ -50,9 +50,10 @@ Once connected, Claude will:
 
 | Tool | Description |
 |------|-------------|
-| `getContext` | Get graph overview — stats, hub nodes, dimensions, recent activity |
+| `getContext` | Get graph overview — stats, contexts, hub nodes, dimensions, recent activity |
 | `createNode` | Create a new node |
 | `queryNodes` | Search nodes by keyword |
+| `queryContexts` | List or inspect contexts |
 | `getNodesById` | Load nodes by ID (includes chunk + metadata) |
 | `updateNode` | Update an existing node |
 | `createEdge` | Create connection between nodes |

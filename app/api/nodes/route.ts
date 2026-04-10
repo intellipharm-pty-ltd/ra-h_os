@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { nodeService } from '@/services/database';
+import { contextService, nodeService } from '@/services/database';
 import { Node, NodeFilters } from '@/types/database';
 import { autoEmbedQueue } from '@/services/embedding/autoEmbedQueue';
 import { generateDescription } from '@/services/database/descriptionService';
 import { scheduleAutoEdgeCreation } from '@/services/agents/autoEdge';
-import { normalizeDimensions, validateExplicitDescription } from '@/services/database/quality';
+import { coerceDescriptionForStorage, normalizeDimensions } from '@/services/database/quality';
 import { formatUnknownDimensionsError, getUnknownDimensions } from '@/services/database/dimensionValidation';
+import { normalizeNodeLink } from '@/utils/nodeLink';
+import { buildCanonicalNodeMetadata } from '@/services/nodes/metadata';
+import { inferBestContextIdForNode } from '@/services/context/contextAssignment';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +21,14 @@ export async function GET(request: NextRequest) {
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 100,
       offset: searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
     };
+
+    const contextIdParam = searchParams.get('contextId');
+    if (contextIdParam) {
+      const parsed = parseInt(contextIdParam, 10);
+      if (!Number.isNaN(parsed)) {
+        filters.contextId = parsed;
+      }
+    }
 
     // Handle dimensions parameter (comma-separated)
     const dimensionsParam = searchParams.get('dimensions');
@@ -94,6 +105,14 @@ export async function POST(request: NextRequest) {
     body.title = sanitizeTitle(body.title);
 
     const rawSource = typeof body.source === 'string' ? body.source.trim() : null;
+    const rawLink = typeof body.link === 'string' ? body.link : null;
+    const normalizedLink = normalizeNodeLink(rawLink);
+    if (rawLink && !normalizedLink) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid link. Use a full URL like https://example.com'
+      }, { status: 400 });
+    }
     const eventDate = typeof body.event_date === 'string' ? body.event_date : null;
 
     // Process provided dimensions first (needed for description generation)
@@ -109,7 +128,7 @@ export async function POST(request: NextRequest) {
     // Use provided description if present, otherwise auto-generate
     const isUserSuppliedDescription = typeof body.description === 'string' && body.description.trim().length > 0;
     let nodeDescription: string | undefined = isUserSuppliedDescription
-      ? body.description.trim().slice(0, 280)
+      ? body.description.trim().slice(0, 500)
       : undefined;
 
     if (!nodeDescription) {
@@ -117,7 +136,7 @@ export async function POST(request: NextRequest) {
         nodeDescription = await generateDescription({
           title: body.title,
           source: rawSource?.slice(0, 2000) || undefined,
-          link: body.link || undefined,
+          link: normalizedLink || undefined,
           metadata: body.metadata,
           dimensions: trimmedProvidedDimensions
         });
@@ -128,28 +147,16 @@ export async function POST(request: NextRequest) {
 
     // Final safety net — never store null/empty description
     if (!nodeDescription || nodeDescription.trim().length === 0) {
-      nodeDescription = body.title.slice(0, 280);
+      nodeDescription = `${body.title}. Added via Quick Add with no further context yet, so the reason it belongs in the graph is not fully inferred. It has not been reviewed yet.`.slice(0, 500);
     }
 
-    let finalDescription = nodeDescription ?? body.title.slice(0, 280);
-
-    const descriptionError = validateExplicitDescription(finalDescription);
-    if (descriptionError) {
-      if (isUserSuppliedDescription) {
-        return NextResponse.json({
-          success: false,
-          error: descriptionError
-        }, { status: 400 });
-      }
-
-      console.warn(
-        `[DescriptionQuality] Auto-generated description failed validation for "${body.title}": ${descriptionError}. Falling back to title.`
-      );
-      finalDescription = body.title.slice(0, 280);
-    }
+    const finalDescription = coerceDescriptionForStorage({
+      title: body.title,
+      description: nodeDescription
+    });
 
     // Monitor description quality
-    if (WEAK_PATTERNS.test(finalDescription)) {
+    if (WEAK_PATTERNS.test(nodeDescription ?? finalDescription)) {
       console.warn(`[DescriptionQuality] Weak description for node "${body.title}": "${finalDescription}"`);
     }
 
@@ -162,15 +169,52 @@ export async function POST(request: NextRequest) {
       chunkStatus = 'not_chunked';
     }
 
+    let resolvedContextId: number | null | undefined;
+    try {
+      resolvedContextId = await contextService.resolveContextId({
+        context_id: body.context_id,
+        context_name: body.context_name,
+      });
+    } catch (error) {
+      console.warn('[nodes.create] Invalid explicit context input, falling back to inheritance/inference:', error);
+      resolvedContextId = undefined;
+    }
+
+    if (resolvedContextId === undefined && typeof body.active_context_id === 'number' && Number.isInteger(body.active_context_id) && body.active_context_id > 0) {
+      const inherited = await contextService.getContextById(body.active_context_id);
+      if (inherited) {
+        resolvedContextId = inherited.id;
+      }
+    }
+
+    if (resolvedContextId == null) {
+      resolvedContextId = await inferBestContextIdForNode({
+        title: body.title,
+        description: finalDescription,
+        source: sourceToStore,
+        dimensions: finalDimensions,
+        metadata: body.metadata,
+      });
+    }
+
     const node = await nodeService.createNode({
       title: body.title,
       description: finalDescription,
       source: sourceToStore ?? undefined,
       event_date: eventDate ?? undefined,
-      link: body.link,
+      link: normalizedLink ?? undefined,
       dimensions: finalDimensions,
       chunk_status: chunkStatus,
-      metadata: body.metadata || {}
+      context_id: resolvedContextId,
+      metadata: buildCanonicalNodeMetadata({
+        metadata: body.metadata || {},
+        type: typeof body.metadata?.type === 'string'
+          ? body.metadata.type
+          : typeof body.metadata?.source === 'string'
+            ? body.metadata.source
+            : undefined,
+        state: body.metadata?.state === 'processed' ? 'processed' : 'not_processed',
+      })
     });
 
     if (chunkStatus === 'not_chunked' && node.id) {

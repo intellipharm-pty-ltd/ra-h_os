@@ -1,9 +1,6 @@
 ---
 name: Audit
-description: "Run a structured audit of graph quality, skill quality, and operational consistency."
-when_to_use: "User asks for review, QA, cleanup, or governance checks."
-when_not_to_use: "Simple one-off write/read requests."
-success_criteria: "Findings are prioritized, concrete, and tied to actionable fixes."
+description: "Use for structured review, QA, cleanup, or governance checks across graph quality, skill quality, and operational consistency."
 ---
 
 # Audit
@@ -27,3 +24,5 @@ success_criteria: "Findings are prioritized, concrete, and tied to actionable fi
 - Prefer specific evidence over generic commentary.
 - Propose the smallest high-leverage fixes first.
 - Separate defects from optional polish.
+- Node descriptions must read like natural prose while still making what / why / status clear.
+- Flag any node description missing a clear why or status component as a high-priority quality issue.

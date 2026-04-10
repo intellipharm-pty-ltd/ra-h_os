@@ -44,8 +44,9 @@ let logger = (message) => console.log(`[mcp] ${message}`);
 
 const instructions = [
   'RA-H is a personal knowledge graph — local-first, vendor-neutral.',
-  'Core concepts: nodes (knowledge units), edges (connections with explanations), dimensions (categories).',
-  'Always call rah_get_context first to orient yourself — it returns hub nodes, dimensions, stats, and available guides.',
+  'Core concepts: contexts (primary scopes), nodes (knowledge units), edges (connections with explanations), and dimensions (secondary metadata and filters).',
+  'Always call rah_get_context first to orient yourself — it returns contexts, hub nodes, dimensions, stats, and available guides.',
+  'Use contexts as the primary scope layer. Use rah_query_contexts before assigning or filtering by context when needed.',
   'When assigning dimensions, use only existing dimensions returned by rah_get_context or rah_query_dimensions.',
   'Do not invent new dimensions from node titles, concepts, or phrasing.',
   'Only call rah_create_dimension when the user explicitly instructs you to create a new dimension.',
@@ -91,9 +92,11 @@ const addNodeInputSchema = {
   content: z.string().max(20000).optional(),
   source: z.string().max(50000).optional(),
   link: z.string().url().optional(),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(500).optional().describe('Description of the node. Write it as natural prose, not labels or a checklist. It must still make clear what the artifact is, why it is in the graph (infer from conversation context; ask the user if needed), and its current workflow status. Max 500 characters. If the reason is unclear, say that naturally instead of inventing it. Never use filler phrases like "insightful for understanding" or "relevant to the user\'s work".'),
+  context_id: z.number().int().positive().nullable().optional(),
+  context_name: z.string().optional(),
   dimensions: z.array(z.string()).min(1).max(5),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.any()).optional().describe('Optional metadata. Prefer canonical keys: type, state, captured_method, captured_by, source_metadata.'),
   chunk: z.string().max(50000).optional()
 };
 
@@ -107,7 +110,16 @@ const addNodeOutputSchema = {
 const searchNodesInputSchema = {
   query: z.string().min(1).max(400),
   limit: z.number().min(1).max(25).optional(),
-  dimensions: z.array(z.string()).max(5).optional()
+  dimensions: z.array(z.string()).max(5).optional(),
+  contextId: z.number().int().positive().optional()
+};
+
+const queryContextsInputSchema = {
+  contextId: z.number().int().positive().optional(),
+  name: z.string().optional(),
+  search: z.string().optional(),
+  limit: z.number().min(1).max(100).optional(),
+  includeNodes: z.boolean().optional()
 };
 
 const searchNodesOutputSchema = {
@@ -130,11 +142,13 @@ const updateNodeInputSchema = {
   id: z.number().int().positive().describe('The ID of the node to update'),
   updates: z.object({
     title: z.string().optional().describe('New title'),
-    description: z.string().optional().describe('New description (overwrites existing)'),
-    content: z.string().optional().describe('Content to APPEND (not replace)'),
+    description: z.string().max(500).optional().describe('Description of the node. Write it as natural prose, not labels or a checklist. It must still make clear what the artifact is, why it is in the graph (infer from conversation context; ask the user if needed), and its current workflow status. Max 500 characters. If the reason is unclear, say that naturally instead of inventing it. Never use filler phrases like "insightful for understanding" or "relevant to the user\'s work".'),
+    content: z.string().optional().describe('Legacy alias for source. Mapped to source for backward compatibility.'),
+    source: z.string().optional().describe('Canonical source text for embedding.'),
     link: z.string().optional().describe('New link'),
+    context_id: z.number().int().positive().nullable().optional().describe('Primary context ID. Omit to preserve existing context; use null to clear.'),
     dimensions: z.array(z.string()).optional().describe('New dimensions (replaces existing)'),
-    metadata: z.record(z.any()).optional().describe('New metadata (replaces existing)')
+    metadata: z.record(z.any()).optional().describe('Metadata patch. This now merges with existing metadata. Prefer canonical keys: type, state, captured_method, captured_by, source_metadata.')
   }).describe('Fields to update')
 };
 
@@ -269,8 +283,7 @@ const extractUrlInputSchema = {
 const extractUrlOutputSchema = {
   success: z.boolean(),
   title: z.string(),
-  content: z.string(),
-  chunk: z.string(),
+  source: z.string(),
   metadata: z.record(z.any())
 };
 
@@ -283,7 +296,7 @@ const extractYoutubeOutputSchema = {
   success: z.boolean(),
   title: z.string(),
   channel: z.string(),
-  transcript: z.string(),
+  source: z.string(),
   metadata: z.record(z.any())
 };
 
@@ -295,8 +308,7 @@ const extractPdfInputSchema = {
 const extractPdfOutputSchema = {
   success: z.boolean(),
   title: z.string(),
-  content: z.string(),
-  chunk: z.string(),
+  source: z.string(),
   metadata: z.record(z.any())
 };
 
@@ -349,11 +361,11 @@ mcpServer.registerTool(
   'rah_add_node',
   {
     title: 'Add RA-H node',
-    description: 'Create a new node in the local RA-H knowledge base.',
+    description: 'Create a new node in the local RA-H knowledge base. Set context explicitly when clear; otherwise RA-H will infer the best-fit context automatically on create. Use only existing dimensions; do not invent new ones.',
     inputSchema: addNodeInputSchema,
     outputSchema: addNodeOutputSchema
   },
-  async ({ title, content, source, link, description, dimensions, metadata, chunk }) => {
+  async ({ title, content, source, link, description, context_id, context_name, dimensions, metadata, chunk }) => {
     const normalizedDimensions = sanitizeDimensions(dimensions);
     if (normalizedDimensions.length === 0) {
       throw new McpError(
@@ -364,9 +376,11 @@ mcpServer.registerTool(
 
     const payload = {
       title: title.trim(),
-      source: source?.trim() || chunk?.trim() || content?.trim() || undefined,
+      source: source?.trim() || content?.trim() || chunk?.trim() || undefined,
       link: link?.trim() || undefined,
       description: description?.trim() || undefined,
+      context_id: context_id === null ? null : context_id,
+      context_name: context_name?.trim() || undefined,
       dimensions: normalizedDimensions,
       metadata: metadata || {}
     };
@@ -399,7 +413,7 @@ mcpServer.registerTool(
     inputSchema: searchNodesInputSchema,
     outputSchema: searchNodesOutputSchema
   },
-  async ({ query, limit = 10, dimensions }) => {
+  async ({ query, limit = 10, dimensions, contextId }) => {
     const params = new URLSearchParams();
     params.set('search', query.trim());
     params.set('limit', String(Math.min(Math.max(limit, 1), 25)));
@@ -407,6 +421,9 @@ mcpServer.registerTool(
     const dimensionList = sanitizeDimensions(dimensions || []);
     if (dimensionList.length > 0) {
       params.set('dimensions', dimensionList.join(','));
+    }
+    if (contextId) {
+      params.set('contextId', String(contextId));
     }
 
     const result = await callRaHApi(`/api/nodes?${params.toString()}`, {
@@ -437,10 +454,58 @@ mcpServer.registerTool(
 );
 
 mcpServer.registerTool(
+  'rah_query_contexts',
+  {
+    title: 'Query RA-H contexts',
+    description: 'List contexts, inspect a specific context, or search contexts by name/description.',
+    inputSchema: queryContextsInputSchema
+  },
+  async ({ contextId, name, search, limit = 50, includeNodes = false }) => {
+    const normalizedName = typeof name === 'string' ? name.trim().toLowerCase() : '';
+    let contexts = [];
+
+    if (contextId) {
+      const result = await callRaHApi(`/api/contexts/${contextId}`, { method: 'GET' });
+      if (result?.data) {
+        contexts = [result.data];
+      }
+    } else {
+      const result = await callRaHApi('/api/contexts', { method: 'GET' });
+      const all = Array.isArray(result.data) ? result.data : [];
+      contexts = all.filter((context) => {
+        if (normalizedName && context.name?.trim().toLowerCase() !== normalizedName) {
+          return false;
+        }
+        if (search) {
+          const haystack = `${context.name || ''} ${context.description || ''}`.toLowerCase();
+          return haystack.includes(search.trim().toLowerCase());
+        }
+        return true;
+      }).slice(0, Math.min(Math.max(limit, 1), 100));
+    }
+
+    const includeContextNodes = includeNodes && contexts.length === 1 && (contextId || normalizedName);
+    const enriched = await Promise.all(contexts.map(async (context) => {
+      if (!includeContextNodes) return context;
+      const nodeResult = await callRaHApi(`/api/contexts/${context.id}/nodes`, { method: 'GET' });
+      return { ...context, nodes: Array.isArray(nodeResult.data) ? nodeResult.data : [] };
+    }));
+
+    return {
+      content: [{ type: 'text', text: enriched.length === 0 ? 'No matching contexts found.' : `Found ${enriched.length} context(s).` }],
+      structuredContent: {
+        count: enriched.length,
+        contexts: enriched
+      }
+    };
+  }
+);
+
+mcpServer.registerTool(
   'rah_update_node',
   {
     title: 'Update RA-H node',
-    description: 'Update an existing node. Content is APPENDED (not replaced). Dimensions are replaced.',
+    description: 'Update an existing node. Dimensions must be existing canonical dimensions; do not invent new ones.',
     inputSchema: updateNodeInputSchema,
     outputSchema: updateNodeOutputSchema
   },
@@ -449,15 +514,15 @@ mcpServer.registerTool(
       throw new McpError(ErrorCode.InvalidParams, 'At least one field must be provided in updates.');
     }
 
-    // Map MCP legacy fields to canonical source
+    // Backward compatibility: map legacy content/chunk → source
     const mappedUpdates = { ...updates };
-    if (mappedUpdates.content !== undefined) {
-      mappedUpdates.source = mappedUpdates.content;
-    }
     if (mappedUpdates.chunk !== undefined && mappedUpdates.source === undefined) {
       mappedUpdates.source = mappedUpdates.chunk;
     }
-    delete mappedUpdates.content;
+    if (mappedUpdates.content !== undefined) {
+      mappedUpdates.source = mappedUpdates.content;
+      delete mappedUpdates.content;
+    }
     delete mappedUpdates.chunk;
 
     const result = await callRaHApi(`/api/nodes/${id}`, {
@@ -622,7 +687,7 @@ mcpServer.registerTool(
   'rah_create_dimension',
   {
     title: 'Create RA-H dimension',
-    description: 'Create a new dimension/tag for organizing nodes.',
+    description: 'Create a new dimension/tag for organizing nodes only when the user explicitly instructs you to do so.',
     inputSchema: createDimensionInputSchema,
     outputSchema: createDimensionOutputSchema
   },
@@ -760,8 +825,7 @@ mcpServer.registerTool(
       structuredContent: {
         success: true,
         title: result.title || 'Untitled',
-        content: result.content || '',
-        chunk: result.chunk || '',
+        source: result.source || '',
         metadata: result.metadata || {}
       }
     };
@@ -789,7 +853,7 @@ mcpServer.registerTool(
         success: true,
         title: result.title || 'Untitled',
         channel: result.channel || 'Unknown',
-        transcript: result.transcript || '',
+        source: result.source || '',
         metadata: result.metadata || {}
       }
     };
@@ -816,8 +880,7 @@ mcpServer.registerTool(
       structuredContent: {
         success: true,
         title: result.title || 'Untitled PDF',
-        content: result.content || '',
-        chunk: result.chunk || '',
+        source: result.source || '',
         metadata: result.metadata || {}
       }
     };
@@ -829,11 +892,12 @@ mcpServer.registerTool(
   'rah_get_context',
   {
     title: 'Get RA-H context',
-    description: 'Get orientation context: hub nodes, dimensions, stats, and available guides. Call this first.',
+    description: 'Get orientation context: contexts, hub nodes, dimensions, stats, and available guides. Call this first.',
     inputSchema: {},
     outputSchema: {
-      stats: z.object({ nodeCount: z.number(), edgeCount: z.number(), dimensionCount: z.number() }),
+      stats: z.object({ nodeCount: z.number(), edgeCount: z.number(), dimensionCount: z.number(), contextCount: z.number().optional() }),
       hubNodes: z.array(z.object({ id: z.number(), title: z.string(), description: z.string().nullable(), edgeCount: z.number() })),
+      contexts: z.array(z.object({ id: z.number(), name: z.string(), description: z.string().nullable(), icon: z.string().nullable().optional(), count: z.number() })).optional(),
       dimensions: z.array(z.object({ name: z.string(), nodeCount: z.number(), description: z.string().nullable() })),
       guides: z.array(z.string())
     }
@@ -849,18 +913,23 @@ mcpServer.registerTool(
       name: d.name, nodeCount: d.node_count ?? 0, description: d.description ?? null
     })) : [];
 
+    const contextResult = await callRaHApi('/api/contexts', { method: 'GET' });
+    const contexts = Array.isArray(contextResult.data) ? contextResult.data.map(c => ({
+      id: c.id, name: c.name, description: c.description ?? null, icon: c.icon ?? null, count: c.count ?? 0
+    })) : [];
+
     const guideResult = await callRaHApi('/api/guides', { method: 'GET' });
     const guides = Array.isArray(guideResult.data) ? guideResult.data.map(g => g.name) : [];
 
-    const stats = { nodeCount: 0, edgeCount: 0, dimensionCount: dimensions.length };
+    const stats = { nodeCount: 0, edgeCount: 0, dimensionCount: dimensions.length, contextCount: contexts.length };
     try {
       const countResult = await callRaHApi('/api/nodes?limit=1', { method: 'GET' });
       if (countResult.total !== undefined) stats.nodeCount = countResult.total;
     } catch { /* use defaults */ }
 
     return {
-      content: [{ type: 'text', text: `Knowledge graph: ${stats.dimensionCount} dimensions, ${hubNodes.length} hub nodes. ${guides.length} guides available.` }],
-      structuredContent: { stats, hubNodes, dimensions, guides }
+      content: [{ type: 'text', text: `Knowledge graph: ${stats.contextCount} contexts, ${stats.dimensionCount} dimensions, ${hubNodes.length} hub nodes. ${guides.length} guides available.` }],
+      structuredContent: { stats, hubNodes, contexts, dimensions, guides }
     };
   }
 );

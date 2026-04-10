@@ -76,7 +76,8 @@ If you want real-time UI updates when nodes are created:
 
 | Tool | Description |
 |------|-------------|
-| `getContext` | Get graph overview — stats, hub nodes, dimensions, recent activity. Called first automatically. |
+| `getContext` | Get graph overview — stats, contexts, hub nodes, dimensions, recent activity. Called first automatically. |
+| `queryContexts` | List contexts, inspect a context, or search contexts by name/description. |
 | `createNode` | Create a new node (title/source/dimensions) |
 | `queryNodes` | Search existing nodes by keyword |
 | `updateNode` | Update an existing node |
@@ -101,7 +102,7 @@ If you want real-time UI updates when nodes are created:
 
 Once connected, the MCP server instructs Claude to:
 
-1. **Call `getContext` first** to orient itself (hub nodes, dimensions, stats, available skills)
+1. **Call `getContext` first** to orient itself (contexts, hub nodes, dimensions, stats, available skills)
 2. **Proactively capture knowledge** — when a new insight, decision, person, or reference surfaces, it proposes a specific node (title, dimensions, description) so you can approve with minimal friction
 3. **Read skills for complex tasks** — skills provide reusable procedural instructions for graph operations and workflows
 4. **Search before creating** to avoid duplicates

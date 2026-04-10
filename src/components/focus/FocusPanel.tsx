@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Trash2, Loader, Database, RefreshCw, Pencil, X, Save, Plus, Link2, Tag, Share2, AlignLeft } from 'lucide-react';
+import { Trash2, Loader, Database, RefreshCw, Pencil, X, Save, Plus, Link2, Tag, Share2, AlignLeft, ChevronDown, ChevronRight, Check, Folder } from 'lucide-react';
 import { parseAndRenderContent } from '@/components/helpers/NodeLabelRenderer';
 import { Node, NodeConnection } from '@/types/database';
 import DimensionTags from './dimensions/DimensionTags';
@@ -11,7 +11,10 @@ import ConfirmDialog from '../common/ConfirmDialog';
 import { SourceReader } from './source';
 import SourceEditor from './source/SourceEditor';
 import { openExternalUrl, shouldOpenExternally } from '@/utils/openExternalUrl';
+import { normalizeNodeLink } from '@/utils/nodeLink';
 import NodeSearchModal from './edges/NodeSearchModal';
+import { getNodeProcessedState, parseNodeMetadata } from '@/services/nodes/metadata';
+import type { ContextSummary } from '@/types/database';
 
 interface FocusPanelProps {
   openTabs: number[];
@@ -22,9 +25,6 @@ interface FocusPanelProps {
   refreshTrigger?: number;
   onTextSelect?: (nodeId: number, nodeTitle: string, text: string) => void;
   highlightedPassage?: { nodeId: number; selectedText: string } | null;
-  onReorderTabs?: (fromIndex: number, toIndex: number) => void;
-  onOpenInOtherSlot?: (nodeId: number) => void;
-  hideTabBar?: boolean;
 }
 
 type HoverSection = 'description' | 'source' | null;
@@ -38,9 +38,6 @@ export default function FocusPanel({
   refreshTrigger,
   onTextSelect,
   highlightedPassage,
-  onReorderTabs,
-  onOpenInOtherSlot,
-  hideTabBar,
 }: FocusPanelProps) {
   const { dimensionIcons } = useDimensionIcons();
   const [nodesData, setNodesData] = useState<Record<number, Node>>({});
@@ -72,6 +69,9 @@ export default function FocusPanel({
   const [sourceEditMode, setSourceEditMode] = useState(false);
   const [sourceEditValue, setSourceEditValue] = useState('');
   const [sourceSaving, setSourceSaving] = useState(false);
+  const [availableContexts, setAvailableContexts] = useState<ContextSummary[]>([]);
+  const [contextSaving, setContextSaving] = useState(false);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [hoveredSection, setHoveredSection] = useState<HoverSection>(null);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -80,8 +80,12 @@ export default function FocusPanel({
   const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
   const skipTitleBlurRef = useRef(false);
   const skipLinkBlurRef = useRef(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const currentNode = activeTab !== null ? nodesData[activeTab] : undefined;
+  const normalizedCurrentLink = normalizeNodeLink(currentNode?.link || null);
+  const currentProcessedState = getNodeProcessedState(currentNode?.metadata);
+  const currentNodeMetadata = parseNodeMetadata(currentNode?.metadata);
   const currentEdges = activeTab !== null ? edgesData[activeTab] || [] : [];
   const currentEdgesExpanded = activeTab !== null ? Boolean(edgesExpanded[activeTab]) : false;
   const visibleEdges = currentEdgesExpanded ? currentEdges : currentEdges.slice(0, 3);
@@ -101,6 +105,33 @@ export default function FocusPanel({
   useEffect(() => {
     if (sourceEditMode) sourceTextareaRef.current?.focus();
   }, [sourceEditMode]);
+
+  useEffect(() => {
+    if (!contextMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as globalThis.Node)) {
+        setContextMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [contextMenuOpen]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch('/api/contexts');
+        const data = await response.json();
+        if (response.ok && data.success) {
+          setAvailableContexts(data.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch contexts:', error);
+      }
+    })();
+  }, []);
 
 
   useEffect(() => {
@@ -135,6 +166,7 @@ export default function FocusPanel({
     setDescEditValue('');
     setSourceEditMode(false);
     setSourceEditValue('');
+    setContextMenuOpen(false);
     setEdgeSearchOpen(false);
     setEdgeEditingId(null);
     setEdgeEditingValue('');
@@ -145,6 +177,20 @@ export default function FocusPanel({
     setLoadingNodes(prev => new Set(prev).add(id));
     try {
       const response = await fetch(`/api/nodes/${id}`);
+      if (response.status === 404) {
+        setNodesData(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setEdgesData(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        onTabClose(id);
+        return;
+      }
       const data = await response.json();
       if (response.ok && data.node) {
         setNodesData(prev => ({ ...prev, [id]: data.node }));
@@ -197,6 +243,48 @@ export default function FocusPanel({
     }
 
     throw new Error('Missing updated node in response');
+  };
+
+  const toggleProcessedState = async () => {
+    if (activeTab === null || !currentNode) return;
+
+    const nextState = currentProcessedState === 'processed' ? 'not_processed' : 'processed';
+
+    try {
+      await updateNode(activeTab, {
+        metadata: {
+          state: nextState,
+        },
+      });
+    } catch (error) {
+      console.error('Error updating processed state:', error);
+      window.alert('Failed to update processed state. Please try again.');
+    }
+  };
+
+  const renderMetadataSection = () => {
+    const metadataEntries = Object.entries(currentNodeMetadata).filter(([, value]) => value !== undefined);
+    const rawJson = metadataEntries.length > 0 ? JSON.stringify(currentNodeMetadata, null, 2) : '';
+
+    return (
+      <section style={{ ...S.section, minWidth: 0, width: '100%', overflow: 'hidden' }}>
+        <div style={S.sectionHeader}>
+          <span style={S.sectionLabel}>Metadata</span>
+          <div style={S.sectionRule} />
+        </div>
+
+        {metadataEntries.length === 0 ? (
+          <div style={{ color: 'var(--rah-text-muted)', fontSize: '12px', fontStyle: 'italic' }}>
+            No metadata stored for this node.
+          </div>
+        ) : (
+          <div className="metadata-group">
+            <div className="metadata-group-label">raw</div>
+            <pre className="metadata-raw">{rawJson}</pre>
+          </div>
+        )}
+      </section>
+    );
   };
 
   const startTitleEdit = () => {
@@ -307,6 +395,20 @@ export default function FocusPanel({
       window.alert('Failed to save source. Please try again.');
     } finally {
       setSourceSaving(false);
+    }
+  };
+
+  const saveContext = async (value: string) => {
+    if (!activeTab) return;
+    setContextSaving(true);
+    try {
+      await updateNode(activeTab, { context_id: value ? Number(value) : null });
+      setContextMenuOpen(false);
+    } catch (error) {
+      console.error('Error saving context:', error);
+      window.alert('Failed to save context. Please try again.');
+    } finally {
+      setContextSaving(false);
     }
   };
 
@@ -597,6 +699,315 @@ export default function FocusPanel({
     },
   };
 
+  const renderDescriptionSection = () => (
+    <section
+      style={S.section}
+      onMouseEnter={() => setHoveredSection('description')}
+      onMouseLeave={() => setHoveredSection(prev => prev === 'description' ? null : prev)}
+    >
+      {/* Section header with extending rule */}
+      <div style={S.sectionHeader}>
+        <span style={S.sectionLabel}>Description</span>
+        <div style={S.sectionRule} />
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: hoveredSection === 'description' || descEditMode ? 1 : 0, transition: 'opacity 150ms ease' }}>
+          {!descEditMode && (
+            <>
+              <button type="button" style={S.iconBtn} onClick={startDescEdit} title="Edit">
+                <Pencil size={11} />
+              </button>
+              {activeTab !== null && (
+                <button
+                  type="button"
+                  style={S.iconBtn}
+                  onClick={() => void regenerateDescription(activeTab)}
+                  disabled={regeneratingDescription === activeTab}
+                  title="Regenerate"
+                >
+                  {regeneratingDescription === activeTab
+                    ? <Loader size={11} className="animate-spin" />
+                    : <RefreshCw size={11} />}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {descEditMode ? (
+        <div style={S.editorBlock}>
+          <textarea
+            ref={descTextareaRef}
+            value={descEditValue}
+            onChange={(e) => setDescEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void saveDesc(); }
+              if (e.key === 'Escape') { e.preventDefault(); setDescEditMode(false); setDescEditValue(''); }
+            }}
+            disabled={descSaving}
+            style={{ ...S.textarea, minHeight: '90px', lineHeight: '1.6', fontSize: '13.5px' }}
+            rows={4}
+            placeholder="Add a concise description..."
+          />
+          <div style={S.editorActions}>
+            <button type="button" style={S.secondaryBtn} onClick={() => { setDescEditMode(false); setDescEditValue(''); }} disabled={descSaving}>
+              <X size={13} /> Cancel
+            </button>
+            <button type="button" style={S.primaryBtn} onClick={() => void saveDesc()} disabled={descSaving}>
+              {descSaving ? <Loader size={13} className="animate-spin" /> : <Save size={13} />} Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={startDescEdit}
+          style={{ color: 'var(--rah-text-base)', fontSize: '13.5px', lineHeight: '1.65', cursor: 'text' }}
+        >
+          {currentNode?.description
+            ? parseAndRenderContent(currentNode.description, onNodeClick || onTabSelect)
+            : <span style={{ color: 'var(--rah-text-muted)', fontStyle: 'italic' }}>Add a description...</span>}
+        </div>
+      )}
+    </section>
+  );
+
+  const renderConnectionsSection = () => (
+    <section style={S.section}>
+      {/* Section header */}
+      <div style={S.sectionHeader}>
+        <span style={S.sectionLabel}>Connections</span>
+        <div style={S.sectionRule} />
+      </div>
+
+      {loadingEdges.has(activeTab ?? -1) ? (
+        <span style={{ color: 'var(--rah-text-muted)', fontSize: '12px' }}>Loading…</span>
+      ) : currentEdges.length === 0 ? (
+        <button
+          type="button"
+          onClick={() => setEdgeSearchOpen(true)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            alignSelf: 'flex-start',
+            background: 'transparent',
+            border: '1px dashed var(--rah-border-strong)',
+            borderRadius: '8px',
+            color: 'var(--rah-text-muted)',
+            fontSize: '12px',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            padding: '7px 12px',
+          }}
+        >
+          <Plus size={13} />
+          Add connection
+        </button>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {visibleEdges.map((connection) => {
+            const isOutgoing = connection.edge.from_node_id === activeTab;
+            const explanation = typeof connection.edge.context?.explanation === 'string'
+              ? connection.edge.context.explanation
+              : '';
+            const isHovered = hoveredConnectionId === connection.id;
+
+            return (
+              <div
+                key={connection.id}
+                onMouseEnter={() => setHoveredConnectionId(connection.id)}
+                onMouseLeave={() => setHoveredConnectionId(null)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  background: isHovered ? 'var(--rah-bg-hover)' : 'transparent',
+                  transition: 'background 120ms ease',
+                  margin: '0 -8px',
+                }}
+              >
+                {/* Title row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <span style={{
+                    fontSize: '11px',
+                    color: isOutgoing ? 'var(--rah-accent-green)' : '#f59e0b',
+                    flexShrink: 0,
+                    width: '12px',
+                    textAlign: 'center',
+                  }}>
+                    {isOutgoing ? '↗' : '↙'}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                    {getNodeIcon(connection.connected_node, dimensionIcons, 12)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => (onNodeClick || onTabSelect)(connection.connected_node.id)}
+                    title={connection.connected_node.title}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 0,
+                      color: 'var(--rah-text-base)',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {connection.connected_node.title}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteEdge(connection.edge.id)}
+                    disabled={deletingEdge === connection.edge.id}
+                    title="Remove"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--rah-text-muted)',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '4px',
+                      flexShrink: 0,
+                      opacity: isHovered ? 1 : 0,
+                      transition: 'opacity 120ms ease, color 120ms ease',
+                    }}
+                  >
+                    {deletingEdge === connection.edge.id ? '…' : <Trash2 size={11} />}
+                  </button>
+                </div>
+
+                {/* Explanation row */}
+                {edgeEditingId === connection.edge.id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '18px' }}>
+                    <input
+                      value={edgeEditingValue}
+                      onChange={(e) => setEdgeEditingValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); void saveEdgeExplanation(connection.edge.id, connection.edge.context); }
+                        if (e.key === 'Escape') { e.preventDefault(); cancelEditEdgeExplanation(); }
+                      }}
+                      placeholder="Describe this connection..."
+                      autoFocus
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        background: 'var(--rah-bg-surface)',
+                        border: '1px solid var(--rah-border-strong)',
+                        borderRadius: '6px',
+                        padding: '5px 8px',
+                        color: 'var(--rah-text-base)',
+                        fontSize: '12px',
+                        outline: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveEdgeExplanation(connection.edge.id, connection.edge.context)}
+                      disabled={edgeSavingId === connection.edge.id}
+                      style={{ padding: '5px 8px', fontSize: '10px', border: 'none', background: 'var(--rah-accent-green)', color: 'var(--rah-text-inverse)', borderRadius: '5px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEditEdgeExplanation}
+                      style={{ padding: '5px 8px', fontSize: '10px', border: '1px solid var(--rah-border-strong)', background: 'transparent', color: 'var(--rah-text-soft)', borderRadius: '5px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (explanation || isHovered) ? (
+                  <button
+                    type="button"
+                    onClick={() => startEditEdgeExplanation(connection.edge.id, explanation)}
+                    title={explanation || 'Add a note about this connection'}
+                    style={{
+                      display: 'block',
+                      marginLeft: '18px',
+                      padding: 0,
+                      border: 'none',
+                      background: 'transparent',
+                      color: explanation ? 'var(--rah-text-muted)' : 'var(--rah-border-stronger)',
+                      fontSize: '11.5px',
+                      lineHeight: 1.4,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      fontFamily: 'inherit',
+                      fontStyle: explanation ? 'normal' : 'italic',
+                      opacity: isHovered ? 1 : explanation ? 0.7 : 0,
+                      transition: 'opacity 120ms ease',
+                    }}
+                  >
+                    {explanation || 'Add note…'}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Expand / collapse */}
+      {currentEdges.length > 3 && (
+        <button
+          type="button"
+          onClick={() => {
+            if (activeTab === null) return;
+            setEdgesExpanded(prev => ({ ...prev, [activeTab]: !currentEdgesExpanded }));
+          }}
+          style={{
+            display: 'block',
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--rah-text-muted)',
+            fontSize: '11px',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            padding: '2px 0',
+            textAlign: 'left',
+          }}
+        >
+          {currentEdgesExpanded ? '↑ Show less' : `+ ${currentEdges.length - 3} more`}
+        </button>
+      )}
+
+      {/* Add connection */}
+      {currentEdges.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setEdgeSearchOpen(true)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            alignSelf: 'flex-start',
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--rah-text-muted)',
+            fontSize: '11px',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            padding: '2px 0',
+          }}
+        >
+          <Plus size={11} />
+          Add connection
+        </button>
+      )}
+    </section>
+  );
+
   const renderSourceSection = () => {
     const sourceContent = currentNode?.source || '';
 
@@ -680,34 +1091,55 @@ export default function FocusPanel({
         ) : !currentNode ? (
           <div className="empty-state">Node not found.</div>
         ) : (
-          <div className="document-view">
+          <div className={`document-view ${currentProcessedState === 'processed' ? 'document-view-processed' : ''}`}>
 
             {/* ── Title ── */}
             <div className="title-row">
-              {titleEditMode ? (
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={titleEditValue}
-                  onChange={(e) => setTitleEditValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); void saveTitle(); }
-                    if (e.key === 'Escape') { e.preventDefault(); skipTitleBlurRef.current = true; setTitleEditMode(false); setTitleEditValue(''); }
-                  }}
-                  onBlur={() => {
-                    if (skipTitleBlurRef.current) { skipTitleBlurRef.current = false; return; }
-                    void saveTitle();
-                  }}
-                  disabled={titleSaving}
-                  className="title-input"
-                  placeholder="Enter title..."
-                />
-              ) : (
-                <button type="button" className="title-button" onClick={startTitleEdit}>
-                  {currentNode.title || 'Untitled'}
-                </button>
-              )}
+              <div className="title-stack">
+                {titleEditMode ? (
+                  <input
+                    ref={titleInputRef}
+                    type="text"
+                    value={titleEditValue}
+                    onChange={(e) => setTitleEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); void saveTitle(); }
+                      if (e.key === 'Escape') { e.preventDefault(); skipTitleBlurRef.current = true; setTitleEditMode(false); setTitleEditValue(''); }
+                    }}
+                    onBlur={() => {
+                      if (skipTitleBlurRef.current) { skipTitleBlurRef.current = false; return; }
+                      void saveTitle();
+                    }}
+                    disabled={titleSaving}
+                    className="title-input"
+                    placeholder="Enter title..."
+                  />
+                ) : (
+                  <button type="button" className="title-button" onClick={startTitleEdit}>
+                    {currentNode.title || 'Untitled'}
+                  </button>
+                )}
 
+                <div className="node-status-row">
+                  <button
+                    type="button"
+                    onClick={() => void toggleProcessedState()}
+                    className={`processed-control ${currentProcessedState === 'processed' ? 'is-processed' : ''}`}
+                    title="Toggle processed state"
+                  >
+                    <span className={`processed-control-box ${currentProcessedState === 'processed' ? 'is-processed' : ''}`}>
+                      <Check size={12} strokeWidth={2.8} />
+                    </span>
+                    <span className="processed-control-copy">
+                      <span className="processed-control-label">processed</span>
+                    </span>
+                  </button>
+
+                  {currentProcessedState === 'processed' && (
+                    <span className="processed-indicator-badge">processed</span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* ── Properties block ── */}
@@ -729,7 +1161,7 @@ export default function FocusPanel({
                     onClick={() => setPropsCollapsed(c => !c)}
                     title={propsCollapsed ? 'Expand properties' : 'Collapse properties'}
                   >
-                    {propsCollapsed ? '▸' : '▾'}
+                    {propsCollapsed ? <ChevronRight size={18} strokeWidth={2.5} /> : <ChevronDown size={18} strokeWidth={2.5} />}
                   </button>
                   <button
                     type="button"
@@ -776,24 +1208,81 @@ export default function FocusPanel({
                       placeholder="https://..."
                     />
                   ) : currentNode.link ? (
-                    <a
-                      href={currentNode.link}
-                      className="prop-link"
-                      onClick={(e) => {
-                        if (e.metaKey || e.ctrlKey) { e.preventDefault(); startLinkEdit(); return; }
-                        if (!shouldOpenExternally(currentNode.link || '')) return;
-                        e.preventDefault();
-                        void openExternalUrl(currentNode.link || '').catch(() => window.alert(`Unable to open ${currentNode.link}`));
-                      }}
-                      title={`${currentNode.link} (Cmd+Click to edit)`}
-                    >
-                      {currentNode.link}
-                    </a>
+                    normalizedCurrentLink ? (
+                      <a
+                        href={normalizedCurrentLink}
+                        className="prop-link"
+                        onClick={(e) => {
+                          if (e.metaKey || e.ctrlKey) { e.preventDefault(); startLinkEdit(); return; }
+                          if (!shouldOpenExternally(normalizedCurrentLink)) return;
+                          e.preventDefault();
+                          void openExternalUrl(normalizedCurrentLink).catch(() => window.alert(`Unable to open ${currentNode.link}`));
+                        }}
+                        title={`${normalizedCurrentLink} (Cmd+Click to edit)`}
+                      >
+                        {currentNode.link}
+                      </a>
+                    ) : (
+                      <button type="button" className="prop-empty-btn" onClick={startLinkEdit} title="Invalid link. Click to edit.">
+                        {currentNode.link}
+                      </button>
+                    )
                   ) : (
                     <button type="button" className="prop-empty-btn" onClick={startLinkEdit}>
                       Empty
                     </button>
                   )}
+                </div>
+              </div>
+
+              <div className="prop-row prop-row-top">
+                <div className="prop-label">ctx</div>
+                <div className="prop-value" style={{ overflow: 'visible' }}>
+                  <div ref={contextMenuRef} style={{ position: 'relative', width: '100%' }}>
+                    <button
+                      type="button"
+                      onClick={() => setContextMenuOpen((prev) => !prev)}
+                      disabled={contextSaving}
+                      className="context-select-trigger"
+                    >
+                      <span className="context-select-main">
+                        <span className="context-select-icon">
+                          <Folder size={13} />
+                        </span>
+                        <span className="context-select-text">
+                          {currentNode.context?.name || 'No context'}
+                        </span>
+                      </span>
+                      <ChevronDown size={13} className={`context-select-chevron ${contextMenuOpen ? 'open' : ''}`} />
+                    </button>
+
+                    {contextMenuOpen ? (
+                      <div className="context-select-menu">
+                        <button
+                          type="button"
+                          className={`context-option ${currentNode.context_id == null ? 'active' : ''}`}
+                          onClick={() => {
+                            void saveContext('');
+                          }}
+                        >
+                          No context
+                        </button>
+                        {availableContexts.map((context) => (
+                          <button
+                            key={context.id}
+                            type="button"
+                            className={`context-option ${currentNode.context_id === context.id ? 'active' : ''}`}
+                            onClick={() => {
+                              void saveContext(String(context.id));
+                            }}
+                          >
+                            <span>{context.name}</span>
+                            <span className="context-option-count">{context.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -946,6 +1435,7 @@ export default function FocusPanel({
             </div>
 
             {renderSourceSection()}
+            {renderMetadataSection()}
           </div>
         )}
       </div>
@@ -993,6 +1483,21 @@ export default function FocusPanel({
           margin: 0 auto;
         }
 
+        .document-view-processed {
+          position: relative;
+        }
+
+        .document-view-processed::before {
+          content: '';
+          position: absolute;
+          top: 4px;
+          left: -14px;
+          bottom: 4px;
+          width: 2px;
+          border-radius: 999px;
+          background: linear-gradient(180deg, rgba(74, 222, 128, 0.85), rgba(74, 222, 128, 0.15));
+        }
+
         .empty-state {
           color: var(--rah-text-muted);
           font-size: 13px;
@@ -1006,6 +1511,21 @@ export default function FocusPanel({
           align-items: flex-start;
           gap: 8px;
           margin-bottom: 18px;
+        }
+
+        .title-stack {
+          display: flex;
+          flex: 1;
+          min-width: 0;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .node-status-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
         }
 
         .node-meta-value {
@@ -1062,18 +1582,94 @@ export default function FocusPanel({
           outline: none;
         }
 
+        .processed-control {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid var(--rah-border);
+          border-radius: 999px;
+          padding: 7px 10px;
+          cursor: pointer;
+          color: var(--rah-text-base);
+          transition: border-color 140ms ease, background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+          min-width: 0;
+          font-family: inherit;
+        }
+
+        .processed-control:hover {
+          border-color: var(--rah-border-strong);
+          background: rgba(255, 255, 255, 0.04);
+          transform: translateY(-1px);
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+        }
+
+        .processed-control.is-processed {
+          border-color: rgba(74, 222, 128, 0.26);
+          background: rgba(74, 222, 128, 0.07);
+        }
+
+        .processed-control-box {
+          width: 20px;
+          height: 20px;
+          border-radius: 999px;
+          border: 1px solid var(--rah-border-strong);
+          background: var(--rah-bg-surface);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: transparent;
+          flex-shrink: 0;
+          transition: all 140ms ease;
+        }
+
+        .processed-control-box.is-processed {
+          border-color: rgba(74, 222, 128, 0.65);
+          background: rgba(74, 222, 128, 0.18);
+          color: #86efac;
+          box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.15);
+        }
+
+        .processed-control-copy {
+          display: inline-flex;
+          min-width: 0;
+          text-align: left;
+        }
+
+        .processed-control-label {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--rah-text-active);
+          line-height: 1.2;
+          text-transform: lowercase;
+        }
+
+        .processed-indicator-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 4px 9px;
+          border-radius: 999px;
+          background: rgba(74, 222, 128, 0.10);
+          border: 1px solid rgba(74, 222, 128, 0.22);
+          color: #86efac;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
         .node-row-actions {
           display: flex;
           align-items: center;
-          gap: 4px;
+          gap: 6px;
           flex-shrink: 0;
           padding-right: 4px;
         }
 
         .delete-node-button {
-          color: #888;
+          color: #ef4444;
           background: transparent;
-          border: 1px solid #666;
+          border: none;
           width: 26px;
           height: 26px;
           display: inline-flex;
@@ -1082,13 +1678,13 @@ export default function FocusPanel({
           cursor: pointer;
           flex-shrink: 0;
           border-radius: 5px;
-          transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+          transition: color 120ms ease, background 120ms ease, transform 120ms ease;
         }
 
         .delete-node-button:hover:enabled {
           color: #ef4444;
-          border-color: #ef4444;
-          background: rgba(239, 68, 68, 0.1);
+          background: rgba(239, 68, 68, 0.12);
+          transform: scale(1.05);
         }
 
         /* ── Properties block ── */
@@ -1128,20 +1724,21 @@ export default function FocusPanel({
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 26px;
-          height: 26px;
+          width: 30px;
+          height: 30px;
           background: transparent;
-          border: 1px solid #666;
+          border: none;
           border-radius: 5px;
-          color: #888;
+          color: var(--rah-text-soft);
           font-size: 14px;
           cursor: pointer;
-          transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+          transition: color 120ms ease, background 120ms ease, transform 120ms ease;
         }
 
         .props-toggle:hover {
-          border-color: #999;
-          color: #bbb;
+          background: var(--rah-bg-hover);
+          color: var(--rah-text-active);
+          transform: scale(1.05);
         }
 
         /* Link */
@@ -1181,6 +1778,106 @@ export default function FocusPanel({
           padding: 0;
           cursor: pointer;
           font-family: inherit;
+        }
+
+        .context-select-trigger {
+          width: 100%;
+          min-height: 34px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 7px 10px;
+          border-radius: 9px;
+          border: 1px solid var(--rah-border);
+          background: var(--rah-bg-panel);
+          color: var(--rah-text-base);
+          cursor: pointer;
+          font-family: inherit;
+          transition: border-color 120ms ease, background 120ms ease;
+        }
+
+        .context-select-trigger:hover {
+          border-color: var(--rah-border-strong);
+          background: var(--rah-bg-hover);
+        }
+
+        .context-select-main {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          flex: 1;
+        }
+
+        .context-select-icon {
+          display: inline-flex;
+          align-items: center;
+          color: var(--rah-text-muted);
+          flex-shrink: 0;
+        }
+
+        .context-select-text {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 12px;
+        }
+
+        .context-select-chevron {
+          color: var(--rah-text-muted);
+          transition: transform 120ms ease;
+          flex-shrink: 0;
+        }
+
+        .context-select-chevron.open {
+          transform: rotate(180deg);
+        }
+
+        .context-select-menu {
+          margin-top: 6px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 6px;
+          border-radius: 10px;
+          border: 1px solid var(--rah-border);
+          background: var(--rah-bg-panel);
+          box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+        }
+
+        .context-option {
+          width: 100%;
+          min-height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 0 10px;
+          border: none;
+          border-radius: 7px;
+          background: transparent;
+          color: var(--rah-text-secondary);
+          cursor: pointer;
+          font-size: 12px;
+          font-family: inherit;
+          text-align: left;
+        }
+
+        .context-option:hover,
+        .context-option.active {
+          background: var(--rah-bg-hover);
+          color: var(--rah-text-active);
+        }
+
+        .context-option-count {
+          color: var(--rah-text-muted);
+          font-size: 10px;
+          background: var(--rah-bg-active);
+          padding: 1px 6px;
+          border-radius: 999px;
+          flex-shrink: 0;
         }
 
         .prop-muted {
@@ -1312,6 +2009,82 @@ export default function FocusPanel({
         }
 
         .conn-add-btn:hover { color: var(--rah-accent-green); }
+
+        .metadata-group {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+          width: 100%;
+          overflow: hidden;
+        }
+
+        .metadata-group-label {
+          font-size: 10px;
+          color: var(--rah-text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-weight: 600;
+        }
+
+        .metadata-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 8px;
+          width: 100%;
+          min-width: 0;
+          overflow: hidden;
+        }
+
+        .metadata-card {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid var(--rah-border);
+          min-width: 0;
+          overflow: hidden;
+        }
+
+        .metadata-key {
+          font-size: 10px;
+          color: var(--rah-text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-weight: 600;
+        }
+
+        .metadata-value {
+          font-size: 12px;
+          color: var(--rah-text-base);
+          line-height: 1.45;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          min-width: 0;
+        }
+
+        .metadata-raw {
+          margin: 0;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.24);
+          border: 1px solid var(--rah-border);
+          color: var(--rah-text-soft);
+          font-size: 11px;
+          line-height: 1.55;
+          white-space: pre-wrap;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          overflow: hidden;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+          display: block;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+        }
 
         /* ── Description in property ── */
         .desc-read-wrap {

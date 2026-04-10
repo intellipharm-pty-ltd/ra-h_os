@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { nodeService } from '@/services/database';
+import { contextService, nodeService } from '@/services/database';
 import { autoEmbedQueue } from '@/services/embedding/autoEmbedQueue';
 import { hasSufficientContent } from '@/services/embedding/constants';
-import { normalizeDimensions, validateExplicitDescription } from '@/services/database/quality';
+import { coerceDescriptionForStorage, normalizeDimensions } from '@/services/database/quality';
 import { formatUnknownDimensionsError, getUnknownDimensions } from '@/services/database/dimensionValidation';
+import { normalizeNodeLink } from '@/utils/nodeLink';
+import { mergeNodeMetadata } from '@/services/nodes/metadata';
 
 export const runtime = 'nodejs';
 
@@ -73,13 +75,23 @@ export async function PUT(
     const updates: Record<string, unknown> = { ...body };
     let shouldQueueEmbed = false;
 
-    if (typeof body.description === 'string') {
-      const descriptionError = validateExplicitDescription(body.description);
-      if (descriptionError) {
-        console.warn(
-          `[DescriptionQuality] User-updated description failed validation for node ${nodeId}: ${descriptionError}`
-        );
+    if (typeof body.link === 'string') {
+      const trimmedLink = body.link.trim();
+      const normalizedLink = normalizeNodeLink(trimmedLink);
+      if (trimmedLink && !normalizedLink) {
+        return NextResponse.json({
+          success: false,
+          error: 'Invalid link. Use a full URL like https://example.com'
+        }, { status: 400 });
       }
+      updates.link = normalizedLink ?? null;
+    }
+
+    if (typeof body.description === 'string') {
+      updates.description = coerceDescriptionForStorage({
+        title: typeof updates.title === 'string' ? updates.title : existingNode.title,
+        description: body.description
+      });
     }
 
     if (Array.isArray(body.dimensions)) {
@@ -95,6 +107,24 @@ export async function PUT(
 
     delete updates.notes;
     delete updates.chunk;
+
+    if (Object.prototype.hasOwnProperty.call(body, 'context_id') || Object.prototype.hasOwnProperty.call(body, 'context_name')) {
+      try {
+        updates.context_id = await contextService.resolveContextId({
+          context_id: body.context_id,
+          context_name: body.context_name,
+        });
+      } catch (error) {
+        return NextResponse.json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Invalid context input'
+        }, { status: 400 });
+      }
+    }
+
+    if (body.metadata !== undefined) {
+      updates.metadata = mergeNodeMetadata(existingNode.metadata, body.metadata);
+    }
 
     const incomingSource = typeof body.source === 'string' ? body.source : undefined;
     const existingSource = existingNode.source ?? '';

@@ -73,7 +73,7 @@ export default function ContextViewer() {
   return (
     <div style={containerStyle}>
       <p style={descStyle}>
-        Top 10 most-connected nodes are added to background context for tool execution.
+        Context summaries and anchor nodes are used first. Global hub nodes remain secondary diagnostics in background context.
       </p>
 
       {/* Toggle */}

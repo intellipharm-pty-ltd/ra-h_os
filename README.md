@@ -115,13 +115,14 @@ Restart Claude Code fully (**Cmd+Q on Mac**, not just closing the window).
 }
 ```
 
-**What happens:** Once connected, Claude calls `getContext` first to orient itself (stats, hub nodes, dimensions, available skills). It proactively captures knowledge — when a new insight, decision, person, or reference surfaces, it proposes a specific node (title, dimensions, description) so you can approve with minimal friction. For complex tasks it reads skills to follow your graph conventions and workflows.
+**What happens:** Once connected, Claude calls `getContext` first to orient itself (stats, contexts, hub nodes, dimensions, available skills). It proactively captures knowledge — when a new insight, decision, person, or reference surfaces, it proposes a specific node (title, dimensions, description) so you can approve with minimal friction. For complex tasks it reads skills to follow your graph conventions and workflows.
 
 Available tools:
 
 | Tool | What it does |
 |------|--------------|
-| `getContext` | Get graph overview — stats, hub nodes, dimensions, recent activity |
+| `getContext` | Get graph overview — stats, contexts, hub nodes, dimensions, recent activity |
+| `queryContexts` | List contexts, inspect a context, or search contexts |
 | `queryNodes` | Find nodes by keyword |
 | `createNode` | Create a new node |
 | `getNodesById` | Fetch nodes by ID |

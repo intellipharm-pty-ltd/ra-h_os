@@ -18,7 +18,7 @@ export type AgentDelegation = {
 };
 
 // Pane types (chat removed in rah-light)
-export type PaneType = 'node' | 'dimensions' | 'map' | 'views' | 'table' | 'skills';
+export type PaneType = 'node' | 'contexts' | 'dimensions' | 'map' | 'views' | 'table' | 'skills';
 
 // State for each slot
 export interface SlotState {
@@ -34,6 +34,7 @@ export interface SlotState {
 // Actions panes can emit to the layout
 export type PaneAction =
   | { type: 'open-node'; nodeId: number; targetSlot?: SlotId }
+  | { type: 'open-context'; contextId: number | null; contextName?: string | null; targetSlot?: SlotId }
   | { type: 'open-dimension'; dimension: string; targetSlot?: SlotId }
   | { type: 'switch-pane-type'; paneType: PaneType }
   | { type: 'close-pane' };
@@ -90,8 +91,15 @@ export interface ViewsPaneProps extends BasePaneProps {
   onNodeClick: (nodeId: number) => void;
   onNodeOpenInOtherPane?: (nodeId: number) => void;
   refreshToken?: number;
+  externalContextFilterId?: number | null;
   externalDimensionFilter?: string | null;
+  onContextFilterSelect?: (contextId: number | null, contextName?: string | null) => void;
+  onClearExternalContextFilter?: () => void;
   onClearExternalDimensionFilter?: () => void;
+}
+
+export interface ContextsPaneProps extends BasePaneProps {
+  onContextSelect?: (contextId: number | null, contextName?: string | null) => void;
 }
 
 // TablePane specific props
@@ -113,6 +121,7 @@ export interface PaneHeaderProps {
 // Labels for pane types
 export const PANE_LABELS: Record<PaneType, string> = {
   node: 'Nodes',
+  contexts: 'Contexts',
   dimensions: 'Dimensions',
   map: 'Map',
   views: 'Feed',

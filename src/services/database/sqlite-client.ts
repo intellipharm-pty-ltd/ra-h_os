@@ -69,6 +69,7 @@ class SQLiteClient {
 
       // Ensure logging schema (rename memory->logs if needed, create triggers/views)
       this.ensureLoggingAndMemorySchema();
+      this.ensureContextsSchema();
     }
 
     console.log('SQLite client initialized successfully');
@@ -219,6 +220,11 @@ class SQLiteClient {
       return;
     }
     try {
+      const hasReadyLogs = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='logs'").get();
+      if (hasReadyLogs) {
+        return;
+      }
+
       // 1) If logs table missing but legacy memory table exists, migrate
       const hasLogs = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='logs'").get();
       const hasLegacyMemory = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory'").get();
@@ -745,6 +751,58 @@ class SQLiteClient {
       console.log('Logging + memory schema ensured');
     } catch (error) {
       console.error('Failed to ensure logging/memory schema:', error);
+    }
+  }
+
+  private ensureContextsSchema(): void {
+    if (this.readOnly) {
+      return;
+    }
+
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS contexts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      const nodeCols = this.db.prepare('PRAGMA table_info(nodes)').all() as Array<{ name: string }>;
+      const nodeColNames = nodeCols.map((column) => column.name);
+      if (!nodeColNames.includes('context_id')) {
+        this.db.exec('ALTER TABLE nodes ADD COLUMN context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;');
+      }
+
+      const contextCols = this.db.prepare('PRAGMA table_info(contexts)').all() as Array<{ name: string }>;
+      const contextColNames = contextCols.map((column) => column.name);
+      if (!contextColNames.includes('description')) {
+        this.db.exec("ALTER TABLE contexts ADD COLUMN description TEXT NOT NULL DEFAULT '';");
+      }
+      if (!contextColNames.includes('icon')) {
+        this.db.exec('ALTER TABLE contexts ADD COLUMN icon TEXT;');
+      }
+      if (!contextColNames.includes('created_at')) {
+        this.db.exec("ALTER TABLE contexts ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;");
+      }
+      if (!contextColNames.includes('updated_at')) {
+        this.db.exec("ALTER TABLE contexts ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;");
+      }
+
+      this.db.exec(`
+        UPDATE contexts
+        SET description = COALESCE(NULLIF(TRIM(description), ''), name)
+        WHERE description IS NULL OR LENGTH(TRIM(description)) = 0;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_contexts_name_normalized
+          ON contexts(LOWER(TRIM(name)));
+        CREATE INDEX IF NOT EXISTS idx_nodes_context_id ON nodes(context_id);
+      `);
+    } catch (error) {
+      console.warn('Failed to ensure contexts schema:', error);
     }
   }
 

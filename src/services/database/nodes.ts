@@ -3,8 +3,9 @@ import { Node, NodeFilters } from '@/types/database';
 import { eventBroadcaster } from '../events';
 import { EmbeddingService } from '@/services/embeddings';
 import { scoreNodeSearchMatch } from './searchRanking';
+import { buildCanonicalNodeMetadata, mergeNodeMetadata } from '@/services/nodes/metadata';
 
-type NodeRow = Node & { dimensions_json: string };
+type NodeRow = Node & { dimensions_json: string; context_json: string | null };
 type NodeSearchRow = NodeRow & { rank?: number; similarity?: number };
 
 function sanitizeFtsQuery(input: string): string {
@@ -81,7 +82,7 @@ export class NodeService {
 
   async countNodes(filters: NodeFilters = {}): Promise<number> {
     const { dimensions, search, dimensionsMatch = 'any',
-            createdAfter, createdBefore, eventAfter, eventBefore, chunkStatus } = filters;
+            createdAfter, createdBefore, eventAfter, eventBefore, chunkStatus, contextId } = filters;
 
     if (search?.trim()) {
       return this.countSearchNodesSQLite(filters);
@@ -120,6 +121,7 @@ export class NodeService {
     if (eventAfter) { query += ` AND n.event_date >= ?`; params.push(eventAfter); }
     if (eventBefore) { query += ` AND n.event_date < ?`; params.push(eventBefore); }
     if (chunkStatus) { query += ` AND n.chunk_status = ?`; params.push(chunkStatus); }
+    if (contextId !== undefined) { query += ` AND n.context_id = ?`; params.push(contextId); }
 
     const result = sqlite.query<{ total: number }>(query, params);
     return result.rows[0]?.total ?? 0;
@@ -129,7 +131,7 @@ export class NodeService {
 
   private async getNodesSQLite(filters: NodeFilters = {}): Promise<Node[]> {
     const { dimensions, search, limit = 100, offset = 0, sortBy, dimensionsMatch = 'any',
-            createdAfter, createdBefore, eventAfter, eventBefore, chunkStatus } = filters;
+            createdAfter, createdBefore, eventAfter, eventBefore, chunkStatus, contextId } = filters;
 
     if (search?.trim()) {
       return this.searchNodesSQLite(filters);
@@ -141,11 +143,16 @@ export class NodeService {
     let query = `
       SELECT n.id, n.title, n.description, n.source, n.link, n.event_date, n.metadata,
              n.chunk_status, n.embedding_updated_at, n.embedding_text,
-             n.created_at, n.updated_at,
+             n.created_at, n.updated_at, n.context_id,
              COALESCE((SELECT JSON_GROUP_ARRAY(d.dimension)
                        FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json,
+             CASE
+               WHEN c.id IS NULL THEN NULL
+               ELSE json_object('id', c.id, 'name', c.name, 'description', c.description, 'icon', c.icon)
+             END as context_json,
              (SELECT COUNT(*) FROM edges WHERE from_node_id = n.id OR to_node_id = n.id) as edge_count
       FROM nodes n
+      LEFT JOIN contexts c ON c.id = n.context_id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -197,6 +204,10 @@ export class NodeService {
     if (chunkStatus) {
       query += ` AND n.chunk_status = ?`;
       params.push(chunkStatus);
+    }
+    if (contextId !== undefined) {
+      query += ` AND n.context_id = ?`;
+      params.push(contextId);
     }
 
     // Sorting logic
@@ -255,10 +266,15 @@ export class NodeService {
     const query = `
       SELECT n.id, n.title, n.description, n.source, n.link, n.event_date, n.metadata,
              n.chunk_status, n.embedding_updated_at, n.embedding_text,
-             n.created_at, n.updated_at,
+             n.created_at, n.updated_at, n.context_id,
              COALESCE((SELECT JSON_GROUP_ARRAY(d.dimension) 
-                       FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json
+                       FROM node_dimensions d WHERE d.node_id = n.id), '[]') as dimensions_json,
+             CASE
+               WHEN c.id IS NULL THEN NULL
+               ELSE json_object('id', c.id, 'name', c.name, 'description', c.description, 'icon', c.icon)
+             END as context_json
       FROM nodes n
+      LEFT JOIN contexts c ON c.id = n.context_id
       WHERE n.id = ?
     `;
     const result = sqlite.query<NodeRow>(query, [id]);
@@ -284,24 +300,27 @@ export class NodeService {
       event_date,
       dimensions = [],
       chunk_status,
-      metadata = {}
+      metadata = {},
+      context_id,
     } = nodeData;
+    const canonicalMetadata = buildCanonicalNodeMetadata({ metadata });
     const now = new Date().toISOString();
     const sqlite = getSQLiteClient();
 
     const nodeId = sqlite.transaction(() => {
       // Insert node using prepare/run for lastInsertRowid access
       const nodeResult = sqlite.prepare(`
-        INSERT INTO nodes (title, description, source, link, event_date, metadata, chunk_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO nodes (title, description, source, link, event_date, metadata, chunk_status, context_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         description ?? null,
         source ?? null,
         link ?? null,
         event_date ?? null,
-        JSON.stringify(metadata),
+        JSON.stringify(canonicalMetadata),
         chunk_status ?? null,
+        context_id ?? null,
         now,
         now
       );
@@ -349,12 +368,16 @@ export class NodeService {
     const sqlite = getSQLiteClient();
 
     const existingRow = sqlite
-      .query<{ id: number }>('SELECT id FROM nodes WHERE id = ?', [id])
+      .query<{ id: number; metadata: string | null }>('SELECT id, metadata FROM nodes WHERE id = ?', [id])
       .rows[0];
 
     if (!existingRow) {
       throw new Error(`Node with ID ${id} not found`);
     }
+
+    const mergedMetadata = metadata !== undefined
+      ? mergeNodeMetadata(existingRow.metadata, metadata)
+      : undefined;
 
     sqlite.transaction(() => {
       // Update node columns (only update provided fields)
@@ -366,13 +389,17 @@ export class NodeService {
       if (source !== undefined) { setFields.push('source = ?'); params.push(source); }
       if (link !== undefined) { setFields.push('link = ?'); params.push(link); }
       if (event_date !== undefined) { setFields.push('event_date = ?'); params.push(event_date); }
+      if (Object.prototype.hasOwnProperty.call(updates, 'context_id')) {
+        setFields.push('context_id = ?');
+        params.push(updates.context_id ?? null);
+      }
       if (Object.prototype.hasOwnProperty.call(updates, 'chunk_status')) {
         setFields.push('chunk_status = ?');
         params.push(updates.chunk_status ?? null);
       }
-      if (metadata !== undefined) { 
+      if (mergedMetadata !== undefined) {
         setFields.push('metadata = ?'); 
-        params.push(JSON.stringify(metadata)); 
+        params.push(JSON.stringify(mergedMetadata));
       }
       
       // Always update timestamp
@@ -445,6 +472,7 @@ export class NodeService {
       ...row,
       dimensions: JSON.parse(row.dimensions_json || '[]'),
       metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null,
+      context: row.context_json ? JSON.parse(row.context_json) : null,
     };
   }
 
@@ -456,6 +484,7 @@ export class NodeService {
       createdBefore,
       eventAfter,
       eventBefore,
+      contextId,
     } = filters;
 
     const clauses: string[] = [];
@@ -483,6 +512,7 @@ export class NodeService {
     if (createdBefore) { clauses.push(`${alias}.created_at < ?`); params.push(createdBefore); }
     if (eventAfter) { clauses.push(`${alias}.event_date >= ?`); params.push(eventAfter); }
     if (eventBefore) { clauses.push(`${alias}.event_date < ?`); params.push(eventBefore); }
+    if (contextId !== undefined) { clauses.push(`${alias}.context_id = ?`); params.push(contextId); }
 
     return { clauses, params };
   }

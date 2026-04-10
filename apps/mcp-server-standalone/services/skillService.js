@@ -26,6 +26,7 @@ const SEEDED_SKILL_IDS = new Set([
   'persona',
   'calibration',
   'connect',
+  'node-context-enrichment',
 ]);
 
 const DEPRECATED_SKILL_IDS = new Set([

@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { PanelLeftOpen, GripVertical, X } from 'lucide-react';
 import SettingsModal, { SettingsTab } from '../settings/SettingsModal';
 import SearchModal from '../nodes/SearchModal';
-import { Node } from '@/types/database';
+import { ContextSummary, Node } from '@/types/database';
 import { DatabaseEvent } from '@/services/events';
 import { usePersistentState } from '@/hooks/usePersistentState';
 import { useTheme } from '@/hooks/useTheme';
@@ -12,7 +12,7 @@ import { useTheme } from '@/hooks/useTheme';
 import LeftToolbar from './LeftToolbar';
 import SplitHandle from './SplitHandle';
 
-import { NodePane, DimensionsPane, MapPane, ViewsPane, TablePane, SkillsPane } from '../panes';
+import { NodePane, ContextsPane, DimensionsPane, MapPane, ViewsPane, TablePane, SkillsPane } from '../panes';
 import QuickAddInput from '../agents/QuickAddInput';
 import type { PaneType, SlotState, PaneAction, SlotId } from '../panes/types';
 
@@ -35,10 +35,11 @@ const PANEL_A_WEIGHT_KEY = 'ui.panelA.weight.v1';
 const PANEL_B_WEIGHT_KEY = 'ui.panelB.weight.v1';
 const PANEL_C_WEIGHT_KEY = 'ui.panelC.weight.v1';
 const LEFT_NAV_EXPANDED_KEY = 'ui.leftNavExpanded';
+const ACTIVE_CONTEXT_KEY = 'ui.focus.activeContextId';
 const ACTIVE_DIMENSION_KEY = 'ui.focus.activeDimension';
 
 const DEFAULT_SLOT_A: SlotState = { type: 'views' };
-const VALID_PANE_TYPES = new Set<PaneType>(['node', 'dimensions', 'map', 'views', 'table', 'skills']);
+const VALID_PANE_TYPES = new Set<PaneType>(['node', 'contexts', 'dimensions', 'map', 'views', 'table', 'skills']);
 
 function normalizeSlotState(raw: SlotState | null): SlotState | null {
   if (!raw) return null;
@@ -84,7 +85,14 @@ export default function ThreePanelLayout() {
   const [nodesPanelRefresh, setNodesPanelRefresh] = useState(0);
   const [focusPanelRefresh, setFocusPanelRefresh] = useState(0);
   const [folderViewRefresh, setFolderViewRefresh] = useState(0);
+  const [availableContexts, setAvailableContexts] = useState<ContextSummary[]>([]);
+  const [activeContextId, setActiveContextId] = usePersistentState<number | null>(ACTIVE_CONTEXT_KEY, null);
   const [activeDimension, setActiveDimension] = usePersistentState<string | null>(ACTIVE_DIMENSION_KEY, null);
+  const [browseContextFilters, setBrowseContextFilters] = useState<Record<SlotId, number | null>>({
+    A: null,
+    B: null,
+    C: null,
+  });
   const [browseDimensionFilters, setBrowseDimensionFilters] = useState<Record<SlotId, string | null>>({
     A: null,
     B: null,
@@ -103,6 +111,20 @@ export default function ThreePanelLayout() {
     setSlotB((prev) => normalizeSlotState(prev));
     setSlotC((prev) => normalizeSlotState(prev));
   }, [setSlotA, setSlotB, setSlotC]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch('/api/contexts');
+        const data = await response.json();
+        if (response.ok && data.success) {
+          setAvailableContexts(data.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch contexts:', error);
+      }
+    })();
+  }, [nodesPanelRefresh, folderViewRefresh]);
 
   const getSlotState = useCallback((slot: SlotId): SlotState | null => {
     switch (slot) {
@@ -549,6 +571,17 @@ export default function ThreePanelLayout() {
     openNodeFromSlot(nodeId, 'A');
   }, [openNodeFromSlot]);
 
+  const handleContextSelect = useCallback((slot: SlotId, contextId: number | null, _contextName?: string | null) => {
+    setBrowseContextFilters((prev) => ({ ...prev, [slot]: contextId }));
+    setActiveContextId(contextId);
+
+    if (contextId == null) return;
+
+    setPanelExpanded(slot, true);
+    getSlotSetter(slot)({ type: 'views' });
+    setActivePane(slot);
+  }, [getSlotSetter, setActiveContextId, setPanelExpanded]);
+
   const handleDimensionPaneSelect = useCallback((slot: SlotId, dimensionName: string | null) => {
     setBrowseDimensionFilters((prev) => ({ ...prev, [slot]: dimensionName }));
     setActiveDimension(dimensionName);
@@ -565,7 +598,7 @@ export default function ThreePanelLayout() {
       const response = await fetch('/api/quick-add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input, mode, description }),
+        body: JSON.stringify({ input, mode, description, contextId: activeContextId }),
       });
 
       if (!response.ok) {
@@ -591,7 +624,7 @@ export default function ThreePanelLayout() {
     } catch (error) {
       console.error('[ThreePanelLayout] Quick Add error:', error);
     }
-  }, [openPaneSingleton]);
+  }, [activeContextId, openPaneSingleton]);
 
   const handleCloseSlotA = useCallback(() => {
     setSlotA(null);
@@ -619,11 +652,20 @@ export default function ThreePanelLayout() {
           setActivePane(slot);
         }
         break;
+      case 'open-context':
+        handleContextSelect(action.targetSlot ?? slot, action.contextId, action.contextName);
+        break;
+      case 'open-dimension':
+        setBrowseDimensionFilters((prev) => ({ ...prev, [action.targetSlot ?? slot]: action.dimension }));
+        setActiveDimension(action.dimension);
+        setSingletonPaneInSlot(action.targetSlot ?? slot, 'views');
+        setActivePane(action.targetSlot ?? slot);
+        break;
       case 'open-node':
         openNodeFromSlot(action.nodeId, slot);
         break;
     }
-  }, [openNodeFromSlot, setSingletonPaneInSlot]);
+  }, [handleContextSelect, openNodeFromSlot, setActiveDimension, setSingletonPaneInSlot]);
 
   const handleSearchNodeSelect = useCallback((nodeId: number) => {
     handleNodeSelect(nodeId, false);
@@ -758,6 +800,18 @@ export default function ThreePanelLayout() {
           />
         );
 
+      case 'contexts':
+        return (
+          <ContextsPane
+            slot={slot}
+            isActive={isActive}
+            onPaneAction={(action) => handleSlotAction(slot, action)}
+            onCollapse={onCollapse}
+            onSwapPanes={handleSwapPanes}
+            onContextSelect={(contextId, contextName) => handleContextSelect(slot, contextId, contextName)}
+          />
+        );
+
       case 'dimensions':
         return (
           <DimensionsPane
@@ -802,7 +856,16 @@ export default function ThreePanelLayout() {
             refreshToken={nodesPanelRefresh}
             pendingNodes={pendingNodes}
             onDismissPending={(id) => setPendingNodes(prev => prev.filter(p => p.id !== id))}
+            externalContextFilterId={browseContextFilters[slot]}
             externalDimensionFilter={browseDimensionFilters[slot]}
+            onContextFilterSelect={(contextId) => {
+              setBrowseContextFilters((prev) => ({ ...prev, [slot]: contextId }));
+              setActiveContextId(contextId);
+            }}
+            onClearExternalContextFilter={() => {
+              setBrowseContextFilters((prev) => ({ ...prev, [slot]: null }));
+              setActiveContextId(null);
+            }}
             onClearExternalDimensionFilter={() => {
               setBrowseDimensionFilters((prev) => ({ ...prev, [slot]: null }));
               setActiveDimension(null);
@@ -985,6 +1048,15 @@ export default function ThreePanelLayout() {
         onRefreshClick={handleRefreshAll}
         theme={theme}
         onThemeToggle={toggleTheme}
+        contexts={availableContexts}
+        onContextQuickSelect={(contextId, contextName) => {
+          const target = openPaneSingleton('views', 'A');
+          setBrowseContextFilters((prev) => ({ ...prev, [target]: contextId }));
+          setBrowseDimensionFilters((prev) => ({ ...prev, [target]: null }));
+          setActiveContextId(contextId);
+          setActivePane(target);
+          void contextName;
+        }}
       />
 
       <div

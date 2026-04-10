@@ -17,6 +17,7 @@ export default function NodePane({
   onPaneAction,
   onCollapse,
   onSwapPanes,
+  tabBar,
   openTabs,
   activeTab,
   onTabSelect,
@@ -92,76 +93,76 @@ export default function NodePane({
       background: 'transparent',
       overflow: 'hidden',
     }}>
-      <PaneHeader slot={slot} onCollapse={onCollapse} onSwapPanes={onSwapPanes}>
-        {/* Tabs rendered inline */}
-        {openTabs.length === 0 ? (
-          <span style={{ fontSize: '12px', color: 'var(--rah-text-muted)' }}>No tabs open</span>
-        ) : (
-          openTabs.map((tabId) => {
-            const title = nodeTitles[tabId] || 'Loading...';
-            const isActiveTab = activeTab === tabId;
-            return (
-              <div
-                key={tabId}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = 'copyMove';
-                  e.dataTransfer.setData('application/x-rah-tab', JSON.stringify({ id: tabId, title, sourceSlot: slot }));
-                  e.dataTransfer.setData('text/plain', `[NODE:${tabId}:"${title}"]`);
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, tabId });
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '4px 8px',
-                  background: isActiveTab ? 'var(--rah-bg-active)' : 'transparent',
-                  borderRadius: '4px',
-                  cursor: 'grab',
-                  flexShrink: 0,
-                }}
-              >
-                <button
-                  onClick={() => onTabSelect(tabId)}
-                  style={{
-                    fontSize: '11px',
-                    color: isActiveTab ? 'var(--rah-text-active)' : 'var(--rah-text-muted)',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                    whiteSpace: 'nowrap',
+      <PaneHeader slot={slot} onCollapse={onCollapse} onSwapPanes={onSwapPanes} tabBar={tabBar ? tabBar : (
+          /* Legacy node tabs (fallback when no tabBar prop) */
+          openTabs.length === 0 ? (
+            <span style={{ fontSize: '12px', color: '#666' }}>No tabs open</span>
+          ) : (
+            openTabs.map((tabId) => {
+              const title = nodeTitles[tabId] || 'Loading...';
+              const isActiveTab = activeTab === tabId;
+              return (
+                <div
+                  key={tabId}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    e.dataTransfer.setData('application/x-rah-tab', JSON.stringify({ id: tabId, title, sourceSlot: slot }));
+                    e.dataTransfer.setData('text/plain', `[NODE:${tabId}:"${title}"]`);
                   }}
-                >
-                  {truncateTitle(title)}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(tabId);
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, tabId });
                   }}
                   style={{
-                    fontSize: '12px',
-                    color: 'var(--rah-text-muted)',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '0 2px',
-                    lineHeight: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 8px',
+                    background: isActiveTab ? '#1f1f1f' : 'transparent',
+                    borderRadius: '4px',
+                    cursor: 'grab',
+                    flexShrink: 0,
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--rah-text-active)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--rah-text-muted)'; }}
                 >
-                  ×
-                </button>
-              </div>
-            );
-          })
-        )}
-      </PaneHeader>
+                  <button
+                    onClick={() => onTabSelect(tabId)}
+                    style={{
+                      fontSize: '11px',
+                      color: isActiveTab ? '#fff' : '#888',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {truncateTitle(title)}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTabClose(tabId);
+                    }}
+                    style={{
+                      fontSize: '12px',
+                      color: '#666',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '0 2px',
+                      lineHeight: 1,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })
+          )
+        )} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <FocusPanel
@@ -171,11 +172,8 @@ export default function NodePane({
           onNodeClick={onNodeClick}
           onTabClose={onTabClose}
           refreshTrigger={refreshTrigger}
-          onReorderTabs={onReorderTabs}
-          onOpenInOtherSlot={onOpenInOtherSlot}
           onTextSelect={onTextSelect}
           highlightedPassage={highlightedPassage}
-          hideTabBar
         />
       </div>
 
@@ -186,8 +184,8 @@ export default function NodePane({
             position: 'fixed',
             top: contextMenu.y,
             left: contextMenu.x,
-            background: 'var(--rah-bg-active)',
-            border: '1px solid var(--rah-border-strong)',
+            background: '#1a1a1a',
+            border: '1px solid #2a2a2a',
             borderRadius: '6px',
             padding: '4px',
             zIndex: 9999,
@@ -211,18 +209,18 @@ export default function NodePane({
                 background: 'transparent',
                 border: 'none',
                 borderRadius: '4px',
-                color: 'var(--rah-text-secondary)',
+                color: '#ccc',
                 fontSize: '12px',
                 cursor: 'pointer',
                 textAlign: 'left',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--rah-bg-active)';
-                e.currentTarget.style.color = 'var(--rah-text-active)';
+                e.currentTarget.style.background = '#2a2a2a';
+                e.currentTarget.style.color = '#fff';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = 'var(--rah-text-secondary)';
+                e.currentTarget.style.color = '#ccc';
               }}
             >
               <span style={{ fontSize: '14px' }}>↗</span>
@@ -243,18 +241,18 @@ export default function NodePane({
               background: 'transparent',
               border: 'none',
               borderRadius: '4px',
-              color: 'var(--rah-text-secondary)',
+              color: '#ccc',
               fontSize: '12px',
               cursor: 'pointer',
               textAlign: 'left',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--rah-bg-active)';
-              e.currentTarget.style.color = 'var(--rah-text-active)';
+              e.currentTarget.style.background = '#2a2a2a';
+              e.currentTarget.style.color = '#fff';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--rah-text-secondary)';
+              e.currentTarget.style.color = '#ccc';
             }}
           >
             <span style={{ fontSize: '14px' }}>×</span>

@@ -5,6 +5,7 @@ import { Node } from '@/types/database';
 import { getNodeIcon } from '@/utils/nodeIcons';
 import { useDimensionIcons } from '@/context/DimensionIconsContext';
 import { formatRelativeDate } from '@/utils/formatDate';
+import { getNodeProcessedState } from '@/services/nodes/metadata';
 
 interface ListViewProps {
   nodes: Node[];
@@ -48,7 +49,11 @@ export default function ListView({ nodes, onNodeClick }: ListViewProps) {
       overflowY: 'auto',
       padding: '8px'
     }}>
-      {nodes.map(node => (
+      {nodes.map(node => {
+        const processedState = getNodeProcessedState(node.metadata);
+        const isProcessed = processedState === 'processed';
+
+        return (
           <button
             key={node.id}
             onClick={() => onNodeClick(node.id)}
@@ -59,13 +64,14 @@ export default function ListView({ nodes, onNodeClick }: ListViewProps) {
               gap: '12px',
               padding: '12px',
               marginBottom: '4px',
-              background: 'var(--rah-bg-base)',
+              background: isProcessed ? 'var(--rah-bg-subtle, var(--rah-bg-base))' : 'var(--rah-bg-base)',
               border: '1px solid var(--rah-border)',
-              borderLeft: '2px solid var(--rah-border-stronger)',
+              borderLeft: `2px solid ${isProcessed ? 'var(--rah-accent-green, #4ade80)' : 'var(--rah-border-stronger)'}`,
               borderRadius: '6px',
               cursor: 'pointer',
               textAlign: 'left',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              opacity: isProcessed ? 0.82 : 1
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--rah-bg-surface)';
@@ -132,6 +138,16 @@ export default function ListView({ nodes, onNodeClick }: ListViewProps) {
                 gap: '12px',
                 flexWrap: 'wrap'
               }}>
+                <span style={{
+                  padding: '2px 8px',
+                  background: isProcessed ? 'rgba(74, 222, 128, 0.10)' : 'var(--rah-bg-active)',
+                  border: `1px solid ${isProcessed ? 'rgba(74, 222, 128, 0.35)' : 'var(--rah-border-strong)'}`,
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  color: isProcessed ? 'var(--rah-accent-green, #4ade80)' : 'var(--rah-text-muted)'
+                }}>
+                  {processedState}
+                </span>
                 {/* Dimensions */}
                 {node.dimensions && node.dimensions.length > 0 && (
                   <div style={{
@@ -186,7 +202,8 @@ export default function ListView({ nodes, onNodeClick }: ListViewProps) {
               </div>
             </div>
           </button>
-      ))}
+        );
+      })}
     </div>
   );
 }

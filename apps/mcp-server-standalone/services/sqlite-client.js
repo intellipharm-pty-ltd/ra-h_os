@@ -59,7 +59,9 @@ function initDatabase() {
         embedding BLOB,
         embedding_updated_at TEXT,
         embedding_text TEXT,
-        chunk_status TEXT DEFAULT 'not_chunked'
+        chunk_status TEXT DEFAULT 'not_chunked',
+        context_id INTEGER,
+        FOREIGN KEY (context_id) REFERENCES contexts(id) ON DELETE SET NULL
       );
 
       CREATE TABLE IF NOT EXISTS edges (
@@ -91,6 +93,15 @@ function initDatabase() {
         icon TEXT,
         is_priority INTEGER DEFAULT 0,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS contexts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Seed default dimensions
@@ -143,6 +154,42 @@ function initDatabase() {
         AND LENGTH(TRIM(chunk)) > 0;
     `);
   }
+  if (!nodeCols.includes('context_id')) {
+    db.exec('ALTER TABLE nodes ADD COLUMN context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contexts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      icon TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  const contextCols = db.prepare('PRAGMA table_info(contexts)').all().map(c => c.name);
+  if (!contextCols.includes('description')) {
+    db.exec("ALTER TABLE contexts ADD COLUMN description TEXT NOT NULL DEFAULT '';");
+  }
+  if (!contextCols.includes('icon')) {
+    db.exec('ALTER TABLE contexts ADD COLUMN icon TEXT;');
+  }
+  if (!contextCols.includes('created_at')) {
+    db.exec("ALTER TABLE contexts ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;");
+  }
+  if (!contextCols.includes('updated_at')) {
+    db.exec("ALTER TABLE contexts ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;");
+  }
+  db.exec(`
+    UPDATE contexts
+    SET description = COALESCE(NULLIF(TRIM(description), ''), name)
+    WHERE description IS NULL OR LENGTH(TRIM(description)) = 0;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contexts_name_normalized
+      ON contexts(LOWER(TRIM(name)));
+    CREATE INDEX IF NOT EXISTS idx_nodes_context_id ON nodes(context_id);
+  `);
 
   const edgeCols = db.prepare('PRAGMA table_info(edges)').all().map(c => c.name);
   if (!edgeCols.includes('explanation')) {

@@ -5,6 +5,7 @@ import { paperExtractTool } from '@/tools/other/paperExtract';
 import { formatNodeForChat } from '@/tools/infrastructure/nodeFormatter';
 import { summarizeTranscript } from './transcriptSummarizer';
 import { eventBroadcaster } from '@/services/events';
+import { getInternalApiBaseUrl } from '@/services/runtime/apiBase';
 
 export type QuickAddMode = 'link' | 'text';
 
@@ -242,7 +243,7 @@ async function handleExtractionQuickAdd(type: ExtractionQuickAddType, url: strin
       `Attempted pipeline: ${type}`,
     ].join('\n');
 
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/nodes`, {
+    const response = await fetch(`${getInternalApiBaseUrl()}/api/nodes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -251,11 +252,16 @@ async function handleExtractionQuickAdd(type: ExtractionQuickAddType, url: strin
         source,
         link: url,
         metadata: {
-          source: 'quick-add-link-fallback',
-          attempted_pipeline: type,
-          extraction_failed: true,
-          extraction_error: message,
-          refined_at: new Date().toISOString(),
+          type: 'website',
+          state: 'not_processed',
+          captured_method: 'quick_add_link_fallback',
+          captured_by: 'human',
+          source_metadata: {
+            attempted_pipeline: type,
+            extraction_failed: true,
+            extraction_error: message,
+            refined_at: new Date().toISOString(),
+          },
         },
       }),
     });
@@ -294,8 +300,13 @@ async function handleNoteQuickAdd(rawInput: string, task: string, userDescriptio
     title,
     source: content,
     metadata: {
-      source: 'quick-add-note',
-      refined_at: new Date().toISOString(),
+      type: 'note',
+      state: 'not_processed',
+      captured_method: 'quick_add_note',
+      captured_by: 'human',
+      source_metadata: {
+        refined_at: new Date().toISOString(),
+      },
     },
   };
 
@@ -303,7 +314,7 @@ async function handleNoteQuickAdd(rawInput: string, task: string, userDescriptio
     nodePayload.description = userDescription.trim();
   }
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/nodes`, {
+  const response = await fetch(`${getInternalApiBaseUrl()}/api/nodes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(nodePayload),
@@ -356,48 +367,42 @@ async function handleChatTranscriptQuickAdd(rawInput: string, task: string): Pro
     ? ['Where things felt stuck:', ...stickingPoints.map((item) => `- ${item}`)].join('\n')
     : null;
 
-  const contentParts = [
-    `Overview:\n${baseSummary}`,
-  ];
-
-  if (intentLine) {
-    contentParts.push(`What you were trying to do:\n${intentLine}`);
-  }
-  if (progressLine) {
-    contentParts.push(`Where you made progress:\n${progressLine}`);
-  }
-  if (stickingSection) {
-    contentParts.push(stickingSection);
-  }
-  if (highlightSection) contentParts.push(highlightSection);
-  if (followUpSection) contentParts.push(followUpSection);
-  const content = contentParts.join('\n\n');
-
   const title = deriveChatTitle(transcript, summaryResult.subject);
   const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+  const compactSummary = baseSummary.replace(/\s+/g, ' ').trim();
+  const whyDetail = intentLine
+    ? `It belongs in the graph because it preserves context around ${intentLine.toLowerCase()}.`
+    : 'It belongs in the graph because it preserves context from this conversation.';
+  const statusDetail = 'It has not been reviewed yet.';
+  const nodeDescription = `${compactSummary} ${whyDetail} ${statusDetail}`.slice(0, 500);
 
   const metadata = {
-    source: 'quick-add-chat',
-    summary_subject: summaryResult.subject,
-    summary_intent: summaryResult.intent,
-    summary_progress: summaryResult.progress,
-    highlights: summaryResult.highlights ?? [],
-    open_questions: summaryResult.openQuestions ?? [],
-    participants: summaryResult.participants ?? [],
-    sticking_points: summaryResult.stickingPoints ?? [],
-    transcript_length_chars: transcript.length,
-    transcript_length_words: wordCount,
-    transcript_truncated_for_summary: summaryResult.truncated ?? false,
-    summary_generated_at: new Date().toISOString(),
+    type: 'chat',
+    state: 'not_processed',
+    captured_method: 'quick_add_chat',
+    captured_by: 'human',
+    source_metadata: {
+      summary_subject: summaryResult.subject,
+      summary_intent: summaryResult.intent,
+      summary_progress: summaryResult.progress,
+      highlights: summaryResult.highlights ?? [],
+      open_questions: summaryResult.openQuestions ?? [],
+      participants: summaryResult.participants ?? [],
+      sticking_points: summaryResult.stickingPoints ?? [],
+      transcript_length_chars: transcript.length,
+      transcript_length_words: wordCount,
+      transcript_truncated_for_summary: summaryResult.truncated ?? false,
+      summary_generated_at: new Date().toISOString(),
+    },
   };
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/nodes`, {
+  const response = await fetch(`${getInternalApiBaseUrl()}/api/nodes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       title,
       source: transcript,
-      description: content,
+      description: nodeDescription,
       metadata,
     }),
   });
