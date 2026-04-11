@@ -143,7 +143,6 @@ export default function ThreePanelLayout() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>();
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showAddStuff, setShowAddStuff] = useState(false);
-  const [openTabsData, setOpenTabsData] = useState<Node[]>([]);
   const [nodesPanelRefresh, setNodesPanelRefresh] = useState(0);
   const [focusPanelRefresh, setFocusPanelRefresh] = useState(0);
   const [availableContexts, setAvailableContexts] = useState<ContextSummary[]>([]);
@@ -293,33 +292,6 @@ export default function ThreePanelLayout() {
 
     return allOpenNodeIds[0] ?? null;
   }, [activePane, allOpenNodeIds, slotStates]);
-
-  const fetchOpenTabsData = useCallback(async (tabIds: number[]) => {
-    if (tabIds.length === 0) {
-      setOpenTabsData([]);
-      return;
-    }
-
-    try {
-      const results = await Promise.all(
-        tabIds.map(async (id) => {
-          const response = await fetch(`/api/nodes/${id}`);
-          if (!response.ok) return null;
-          const payload = await response.json();
-          return payload.node as Node;
-        })
-      );
-
-      setOpenTabsData(results.filter((node): node is Node => Boolean(node)));
-    } catch (error) {
-      console.error('Failed to fetch open tab data:', error);
-      setOpenTabsData([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchOpenTabsData(allOpenNodeIds);
-  }, [allOpenNodeIds, fetchOpenTabsData, focusPanelRefresh]);
 
   const handleRefreshAll = useCallback(() => {
     setNodesPanelRefresh((prev) => prev + 1);
