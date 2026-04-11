@@ -116,6 +116,22 @@ function sanitizeSlotState(state: SlotState | null, fallback: SlotState | null =
   return migrated ?? fallback;
 }
 
+function areSlotStatesEqual(a: SlotState | null, b: SlotState | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return a === b;
+  if (a.activeTabId !== b.activeTabId) return false;
+  if (a.tabs.length !== b.tabs.length) return false;
+
+  return a.tabs.every((tab, index) => {
+    const other = b.tabs[index];
+    return (
+      tab.id === other?.id &&
+      tab.type === other?.type &&
+      tab.nodeId === other?.nodeId
+    );
+  });
+}
+
 function getSlotTabsByType(state: SlotState | null, type: PaneType): SlotTab[] {
   return state?.tabs.filter((tab) => tab.type === type) ?? [];
 }
@@ -167,9 +183,18 @@ export default function ThreePanelLayout() {
   }, []);
 
   useEffect(() => {
-    setSlotA((prev) => sanitizeSlotState(prev, DEFAULT_SLOT_A));
-    setSlotB((prev) => sanitizeSlotState(prev));
-    setSlotC((prev) => sanitizeSlotState(prev));
+    setSlotA((prev) => {
+      const next = sanitizeSlotState(prev, DEFAULT_SLOT_A);
+      return areSlotStatesEqual(prev, next) ? prev : next;
+    });
+    setSlotB((prev) => {
+      const next = sanitizeSlotState(prev);
+      return areSlotStatesEqual(prev, next) ? prev : next;
+    });
+    setSlotC((prev) => {
+      const next = sanitizeSlotState(prev);
+      return areSlotStatesEqual(prev, next) ? prev : next;
+    });
   }, [setSlotA, setSlotB, setSlotC]);
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export function usePersistentState<T>(
   key: string,
@@ -22,7 +22,7 @@ export function usePersistentState<T>(
   }, [key]);
   
   // Save to localStorage when state changes
-  const setPersistentState = (value: T | ((prev: T) => T)) => {
+  const setPersistentState = useCallback((value: T | ((prev: T) => T)) => {
     setState(prev => {
       const newValue = typeof value === 'function' 
         ? (value as (prev: T) => T)(prev)
@@ -36,7 +36,7 @@ export function usePersistentState<T>(
       
       return newValue;
     });
-  };
+  }, [key]);
   
   return [state, setPersistentState];
 }
