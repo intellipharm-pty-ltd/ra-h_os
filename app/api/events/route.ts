@@ -5,11 +5,21 @@
 
 import { eventBroadcaster } from '@/services/events';
 
-export async function GET() {
+export async function GET(request: Request) {
   const encoder = new TextEncoder();
+  let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+  const cleanupConnection = () => {
+    if (!activeController) return;
+    console.log('🔌 SSE connection cleanup');
+    eventBroadcaster.removeConnection(activeController);
+    activeController = null;
+  };
 
   const stream = new ReadableStream({
     start(controller) {
+      activeController = controller;
+
       // Add this connection to the broadcaster
       console.log('🔌 New SSE connection established');
       eventBroadcaster.addConnection(controller);
@@ -22,24 +32,14 @@ export async function GET() {
       })}\n\n`;
       
       controller.enqueue(encoder.encode(initialMessage));
-
-      // Store controller reference for cleanup
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (controller as any)._cleanup = () => {
-        console.log('🔌 SSE connection cleanup');
-        eventBroadcaster.removeConnection(controller);
-      };
     },
     
-    cancel(controller) {
-      // Clean up when client disconnects
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((controller as any)._cleanup) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (controller as any)._cleanup();
-      }
+    cancel() {
+      cleanupConnection();
     }
   });
+
+  request.signal.addEventListener('abort', cleanupConnection, { once: true });
 
   return new Response(stream, {
     headers: {

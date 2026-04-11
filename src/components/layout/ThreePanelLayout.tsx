@@ -45,6 +45,8 @@ const DEFAULT_SLOT_A: SlotState = {
   activeTabId: 'views',
 };
 
+const EMPTY_SEARCH_FILTERS: Array<{ type: 'context' | 'title' | 'tag'; value: string }> = [];
+
 function createSingletonState(type: Exclude<PaneType, 'node'>): SlotState {
   return {
     tabs: [{ id: createTabId(type), type }],
@@ -157,6 +159,8 @@ export default function ThreePanelLayout() {
   } | null>(null);
   const [pendingNodes, setPendingNodes] = useState<PendingNode[]>([]);
   const [dragOverSlot, setDragOverSlot] = useState<SlotId | null>(null);
+  const openNodeIdsRef = useRef<number[]>([]);
+  const handleNodeDeletedRef = useRef<(nodeId: number) => void>(() => {});
 
   const handleCloseSettings = useCallback(() => {
     setShowSettings(false);
@@ -268,6 +272,10 @@ export default function ThreePanelLayout() {
     return [...ids];
   }, [slotStates]);
 
+  useEffect(() => {
+    openNodeIdsRef.current = allOpenNodeIds;
+  }, [allOpenNodeIds]);
+
   const activeNodeId = useMemo(() => {
     const activeSlotState = slotStates[activePane];
     const activeTab = activeSlotState ? getActiveTab(activeSlotState) : undefined;
@@ -357,12 +365,12 @@ export default function ThreePanelLayout() {
               break;
             case 'NODE_UPDATED':
               setNodesPanelRefresh((prev) => prev + 1);
-              if (allOpenNodeIds.includes(Number(data.data.nodeId))) {
+              if (openNodeIdsRef.current.includes(Number(data.data.nodeId))) {
                 setFocusPanelRefresh((prev) => prev + 1);
               }
               break;
             case 'NODE_DELETED':
-              handleNodeDeleted(Number(data.data.nodeId));
+              handleNodeDeletedRef.current(Number(data.data.nodeId));
               setNodesPanelRefresh((prev) => prev + 1);
               break;
             case 'EDGE_CREATED':
@@ -401,7 +409,7 @@ export default function ThreePanelLayout() {
     return () => {
       eventSource?.close();
     };
-  }, [allOpenNodeIds]);
+  }, []);
 
   useEffect(() => {
     if (pendingNodes.length === 0) return;
@@ -534,6 +542,10 @@ export default function ThreePanelLayout() {
     const tabId = createTabId('node', nodeId);
     (['A', 'B', 'C'] as SlotId[]).forEach((slot) => closeTabInSlot(slot, tabId));
   }, [closeTabInSlot]);
+
+  useEffect(() => {
+    handleNodeDeletedRef.current = handleNodeDeleted;
+  }, [handleNodeDeleted]);
 
   const handleReorderTabs = useCallback((slot: SlotId, fromIndex: number, toIndex: number) => {
     const state = getSlotState(slot);
@@ -981,7 +993,7 @@ export default function ThreePanelLayout() {
           openNodeFromSlot(nodeId);
           setShowSearchModal(false);
         }}
-        existingFilters={[]}
+        existingFilters={EMPTY_SEARCH_FILTERS}
       />
 
       <SettingsModal

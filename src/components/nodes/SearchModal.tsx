@@ -95,7 +95,8 @@ export default function SearchModal({ isOpen, onClose, onNodeSelect, existingFil
   // Generate suggestions based on search query
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setSuggestions([]);
+      setSuggestions((prev) => (prev.length === 0 ? prev : []));
+      setSelectedIndex(0);
       return;
     }
 
@@ -122,7 +123,7 @@ export default function SearchModal({ isOpen, onClose, onNodeSelect, existingFil
 
     const timeoutId = setTimeout(fetchSuggestions, 200);
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, existingFilters]);
+  }, [searchQuery]);
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
