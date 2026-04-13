@@ -59,7 +59,7 @@ function buildInstructions() {
   return `Today's date: ${now}. RA-H is the user's personal knowledge graph — local SQLite, fully on-device.
 
 ## Quick start
-1. Call getContext for orientation (stats, contexts, anchors/hubs).
+1. Call getContext for orientation (high-level graph state, optional contexts, anchors/hubs).
 2. For simple tasks, tool descriptions have everything you need.
 3. For complex tasks, call readSkill("db-operations").
 
@@ -282,11 +282,11 @@ async function main() {
       // First-run welcome message
       if (context.stats.nodeCount === 0) {
         return {
-          content: [{ type: 'text', text: 'Empty knowledge graph. This is a fresh start! Suggest adding the first node about something the user is working on or interested in.' }],
+          content: [{ type: 'text', text: 'Empty knowledge graph. This is a fresh start. Ask what matters right now and help create the first useful node. Contexts are optional and can wait until one is obviously helpful.' }],
           structuredContent: {
             ...context,
             welcome: true,
-            suggestion: 'Ask the user what they\'re working on or interested in, then create the first node.'
+            suggestion: 'Ask what matters right now, create the first useful node, and leave contexts empty unless one is an obvious fit.'
           }
         };
       }
@@ -305,7 +305,7 @@ async function main() {
     'createNode',
     {
       title: 'Add RA-H node',
-      description: 'Create a new node. Always search first (queryNodes) to avoid duplicates. Set context explicitly when clear and useful. Title: max 160 chars, clear and descriptive. Description is strongly recommended and should explicitly describe what the thing is and any surrounding context available, but the write will never be blocked over description quality. Use "link" ONLY for external content (URL, video, article) — omit for synthesis/ideas derived from existing nodes. "source" = verbatim or canonical content for embedding. Legacy "content" and "chunk" are mapped to source for compatibility.',
+      description: 'Create a new node. Always search first (queryNodes) to avoid duplicates. Set context only when one obvious existing context clearly fits; otherwise leave it empty. Title: max 160 chars, clear and descriptive. Description is strongly recommended and should explicitly describe what the thing is and any surrounding context available, but the write will never be blocked over description quality. Use "link" ONLY for external content (URL, video, article) — omit for synthesis/ideas derived from existing nodes. "source" = verbatim or canonical content for embedding. Legacy "content" and "chunk" are mapped to source for compatibility.',
       inputSchema: addNodeInputSchema
     },
     async ({ title, content, source, link, description, context_id, context_name, metadata, chunk }) => {
@@ -564,7 +564,7 @@ async function main() {
     'queryContexts',
     {
       title: 'List RA-H contexts',
-      description: 'List or inspect contexts, the soft organizational layer for the graph. Use this before assigning or filtering by context.',
+      description: 'List or inspect optional contexts. Use this only when a context is already obviously relevant or the user asks for it.',
       inputSchema: queryContextsInputSchema
     },
     async ({ contextId, name, search, limit = 50, includeNodes = false }) => {

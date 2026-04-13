@@ -44,9 +44,9 @@ let logger = (message) => console.log(`[mcp] ${message}`);
 
 const instructions = [
   'RA-H is a personal knowledge graph — local-first, vendor-neutral.',
-  'Core concepts: contexts (optional soft scopes), nodes (knowledge units), and edges (connections with explanations).',
-  'Always call rah_get_context first to orient yourself — it returns contexts, hub nodes, stats, and available guides.',
-  'Use contexts only when they are explicit and helpful. Do not expect automatic context assignment.',
+  'Core concepts: contexts (optional soft scopes, max 10), nodes (knowledge units), and edges (connections with explanations).',
+  'Always call rah_get_context first to orient yourself — it returns high-level graph state, contexts, hub nodes, stats, and available guides.',
+  'Use contexts only when one obvious existing context is explicit and helpful. If unsure or if none exist, leave context empty. Do not expect automatic context assignment.',
   'Search before creating: use rah_search_nodes to check if content already exists.',
   'Every edge needs an explanation: why does this connection exist?',
   'All data stays local on this device; nothing leaves 127.0.0.1.',
@@ -321,7 +321,7 @@ mcpServer.registerTool(
   'rah_add_node',
   {
     title: 'Add RA-H node',
-    description: 'Create a new node in the local RA-H knowledge base. Set context explicitly when clear and useful; otherwise leave it empty.',
+    description: 'Create a new node in the local RA-H knowledge base. Set context only when one obvious existing context clearly fits; otherwise leave it empty.',
     inputSchema: addNodeInputSchema,
     outputSchema: addNodeOutputSchema
   },

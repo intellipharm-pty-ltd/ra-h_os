@@ -10,7 +10,7 @@ description: "Use for graph read, write, connect, classify, or traverse operatio
 1. Search before create to avoid duplicates.
 2. Always try to include a natural description that clearly says what the thing is and any surrounding context available. But description quality is guidance only; RA-H should never block or rewrite a write because of description quality.
 3. Use event dates when known (when it happened, not when saved).
-4. Apply contexts only when they are explicit and helpful. One node gets at most one context. If explicit context is missing on create, leave it empty instead of guessing.
+4. Apply context only when it is an obvious match to one of the user's existing contexts and genuinely helpful. One node gets at most one context. If explicit context is missing on create, leave it empty instead of guessing.
 5. Do not rely on dimensions. Node quality comes from title, description, source, metadata, and strong edges.
 5. Create edges when relationships are meaningful; edge explanations should read as a sentence.
 6. For user-authored ideas, notes, or dictated thoughts, preserve the user's wording in `source` as fully as possible with only minimal cleanup.
@@ -22,7 +22,7 @@ description: "Use for graph read, write, connect, classify, or traverse operatio
 - `source`: full verbatim or canonical content of the node (transcript, article text, book passage, user's thoughts). This is what gets chunked and embedded for semantic search.
 - For idea capture from chat, the `source` should usually be the raw user thought, not a compressed assistant summary.
 - `link`: external source URL only.
-- `context_id`: the node's primary context. Prefer setting it when the scope is explicit. Leave it null rather than guessing.
+- `context_id`: the node's primary context. Prefer setting it only when it is an obvious existing match. Leave it null rather than guessing.
 - `metadata`: use the canonical node metadata contract when metadata is needed:
   - `type`
   - `state` (`processed` or `not_processed`)
