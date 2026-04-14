@@ -220,31 +220,6 @@ function checkFtsAvailability() {
   return _ftsAvailability;
 }
 
-function rebuildFtsIndexes() {
-  const fts = checkFtsAvailability();
-  if (!fts.nodes && !fts.chunks) return;
-
-  const db = getDb();
-  if (fts.nodes) {
-    try {
-      db.exec("INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')");
-      log('Rebuilt nodes_fts index');
-    } catch (err) {
-      log('Warning: Failed to rebuild nodes_fts:', err.message);
-      _ftsAvailability.nodes = false;
-    }
-  }
-  if (fts.chunks) {
-    try {
-      db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')");
-      log('Rebuilt chunks_fts index');
-    } catch (err) {
-      log('Warning: Failed to rebuild chunks_fts:', err.message);
-      _ftsAvailability.chunks = false;
-    }
-  }
-}
-
 // Security: Only allow read-only SQL statements
 function isReadOnlyQuery(sql) {
   const normalized = sql.trim().toLowerCase();
@@ -283,7 +258,6 @@ async function main() {
   try {
     initDatabase();
     log('Database connected:', getDatabasePath());
-    rebuildFtsIndexes();
   } catch (error) {
     log('ERROR:', error.message);
     process.exit(1);

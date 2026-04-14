@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { nodeService } from '@/services/database';
+import { getSQLiteClient } from '@/services/database/sqlite-client';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
+    const integrity = getSQLiteClient().getIntegrityReport();
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get('q');
     const limit = parseInt(searchParams.get('limit') || '10');
@@ -35,7 +37,10 @@ export async function GET(request: NextRequest) {
       success: true,
       data: results,
       count: results.length,
-      query: query.trim()
+      query: query.trim(),
+      degraded: integrity.state !== 'healthy',
+      integrityState: integrity.state,
+      integritySummary: integrity.state !== 'healthy' ? integrity.summary : undefined,
     });
   } catch (error) {
     console.error('Error searching nodes:', error);

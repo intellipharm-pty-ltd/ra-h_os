@@ -420,10 +420,7 @@ export class ChunkService {
     matchCount: number,
     nodeIds?: number[]
   ): RankedChunk[] {
-    const ftsExists = sqlite.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chunks_fts'"
-    ).get();
-    if (!ftsExists) return [];
+    if (!sqlite.canUseFtsTable('chunks')) return [];
 
     const ftsQuery = sanitizeFtsQuery(query);
     if (!ftsQuery) return [];
@@ -461,6 +458,7 @@ export class ChunkService {
 
       return result.rows;
     } catch (error) {
+      sqlite.disableFtsTable('chunks', 'chunks_fts query failed during chunk search', error);
       console.warn('[ChunkSearch] FTS chunk search failed, falling back to LIKE:', error);
       return [];
     }
