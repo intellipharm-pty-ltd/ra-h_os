@@ -1,4 +1,5 @@
 import { nodeService } from '@/services/database';
+import { getSQLiteClient } from '@/services/database/sqlite-client';
 import { NodeEmbedder } from '@/services/typescript/embed-nodes';
 import { UniversalEmbedder } from '@/services/typescript/embed-universal';
 import type { Node } from '@/types/database';
@@ -53,6 +54,16 @@ async function updateChunkStatus(nodeId: number, status: Node['chunk_status']) {
 }
 
 async function runChunkEmbedding(nodeId: number): Promise<EmbeddingResult> {
+  const sqlite = getSQLiteClient();
+  const integrity = sqlite.getIntegrityReport();
+  if (!sqlite.canUseFtsTable('chunks')) {
+    await updateChunkStatus(nodeId, 'error');
+    return {
+      success: false,
+      error: `Chunk indexing is disabled while the chunks FTS surface is degraded. ${integrity.summary}`
+    };
+  }
+
   const embedder = new UniversalEmbedder();
   try {
     await updateChunkStatus(nodeId, 'chunking');

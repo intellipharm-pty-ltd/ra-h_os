@@ -19,14 +19,49 @@ export interface SQLiteQueryResult<T = any> {
   lastInsertRowid?: number;
 }
 
+type FtsSurfaceName = 'nodes' | 'chunks';
+
+interface IntegrityProbeResult {
+  ok: boolean;
+  error?: string;
+  code?: string;
+}
+
+export interface DatabaseIntegrityReport {
+  state: 'healthy' | 'degraded_fts' | 'corrupt';
+  connected: boolean;
+  quickCheck: IntegrityProbeResult;
+  integrityCheck: IntegrityProbeResult;
+  baseTables: Record<'nodes' | 'edges' | 'chunks', IntegrityProbeResult>;
+  ftsTables: Record<FtsSurfaceName, boolean>;
+  ftsProbeResults: Record<FtsSurfaceName, IntegrityProbeResult>;
+  repairableFtsTables: FtsSurfaceName[];
+  canRepairFts: boolean;
+  foreignKeyViolations: number;
+  lostAndFoundExists: boolean;
+  vecTables: {
+    nodes: boolean;
+    chunks: boolean;
+  };
+  summary: string;
+  error?: string;
+}
+
 class SQLiteClient {
   private static instance: SQLiteClient;
   private db: Database.Database;
   private config: SQLiteConfig;
   private readonly readOnly: boolean;
   private readonly vectorCapability: VectorCapability;
-  private nodesFtsUsable = true;
-  private nodesFtsDisabledReason: string | null = null;
+  private integrityReport: DatabaseIntegrityReport | null = null;
+  private readonly ftsUsable: Record<FtsSurfaceName, boolean> = {
+    nodes: true,
+    chunks: true,
+  };
+  private readonly ftsDisabledReason: Record<FtsSurfaceName, string | null> = {
+    nodes: null,
+    chunks: null,
+  };
 
   private constructor() {
     this.config = this.getSQLiteConfig();
@@ -73,6 +108,16 @@ class SQLiteClient {
       // Ensure logging schema (rename memory->logs if needed, create triggers/views)
       this.ensureLoggingAndMemorySchema();
       this.ensureContextsSchema();
+      this.integrityReport = this.inspectIntegrity();
+
+      if (this.integrityReport.state === 'healthy') {
+        this.ensureFtsTables();
+        this.integrityReport = this.inspectIntegrity();
+      } else {
+        console.warn(
+          `[SQLiteIntegrity] Skipping startup FTS mutation because database is ${this.integrityReport.state}: ${this.integrityReport.summary}`
+        );
+      }
     }
 
     console.log('SQLite client initialized successfully');
@@ -118,6 +163,7 @@ class SQLiteClient {
         };
       }
     } catch (error) {
+      this.refreshIntegrityReportForCorruptionError(error);
       console.error('SQLite query error:', error);
       throw this.handleError(error);
     }
@@ -143,6 +189,7 @@ class SQLiteClient {
     try {
       return txn();
     } catch (error) {
+      this.refreshIntegrityReportForCorruptionError(error);
       throw this.handleError(error);
     }
   }
@@ -166,22 +213,11 @@ class SQLiteClient {
   }
 
   public isNodesFtsUsable(): boolean {
-    return this.nodesFtsUsable;
+    return this.canUseFtsTable('nodes');
   }
 
   public disableNodesFts(reason: string, error?: unknown): void {
-    this.nodesFtsUsable = false;
-    if (this.nodesFtsDisabledReason === reason) {
-      return;
-    }
-    this.nodesFtsDisabledReason = reason;
-
-    if (error && !this.isSqliteCorruptError(error)) {
-      console.warn(`[SQLite] nodes_fts disabled: ${reason}`, error);
-      return;
-    }
-
-    console.warn(`[SQLite] nodes_fts disabled: ${reason}. Falling back to LIKE search for this database session.`);
+    this.disableFtsTable('nodes', reason, error);
   }
 
   public async checkTables(): Promise<string[]> {
@@ -227,6 +263,25 @@ class SQLiteClient {
     } catch (error) {
       console.warn('Vector extension not available:', error);
     }
+  }
+
+  public canUseFtsTable(tableName: FtsSurfaceName): boolean {
+    return this.ftsUsable[tableName] && this.getIntegrityReport().ftsTables[tableName];
+  }
+
+  public disableFtsTable(tableName: FtsSurfaceName, reason: string, error?: unknown): void {
+    this.ftsUsable[tableName] = false;
+    if (this.ftsDisabledReason[tableName] === reason) {
+      return;
+    }
+    this.ftsDisabledReason[tableName] = reason;
+
+    if (error && !this.isSqliteCorruptError(error)) {
+      console.warn(`[SQLite] ${tableName}_fts disabled: ${reason}`, error);
+      return;
+    }
+
+    console.warn(`[SQLite] ${tableName}_fts disabled: ${reason}. Falling back to non-FTS behavior for this database session.`);
   }
 
   private ensureVectorTables(): void {
@@ -1073,17 +1128,6 @@ class SQLiteClient {
           } catch {}
         }
 
-        // Only create nodes_fts when it does not exist yet.
-        // Do not rewrite existing FTS tables on startup in the OS app.
-        try {
-          const ftsCheck = this.db.prepare("SELECT sql FROM sqlite_master WHERE name='nodes_fts'").get() as { sql?: string } | undefined;
-          if (!ftsCheck?.sql) {
-            this.db.exec("CREATE VIRTUAL TABLE nodes_fts USING fts5(title, source, description, content='nodes', content_rowid='id');");
-            this.db.exec("INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild');");
-          }
-        } catch (ftsErr) {
-          console.warn('Failed to initialize nodes_fts:', ftsErr);
-        }
       } catch (schemaErr) {
         console.warn('Final schema pass migration error:', schemaErr);
       }
@@ -1183,6 +1227,237 @@ class SQLiteClient {
     tryRead('vec_chunks');
   }
 
+  private ensureFtsTables(): void {
+    if (this.readOnly) {
+      return;
+    }
+
+    try {
+      const ensureFts = (
+        tableName: 'nodes_fts' | 'chunks_fts',
+        createSql: string,
+        triggerSql: string,
+        rebuildSql: string,
+      ) => {
+        const existing = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(tableName) as { sql?: string } | undefined;
+
+        if (!existing?.sql) {
+          this.db.exec(createSql);
+          this.db.exec(rebuildSql);
+        }
+
+        this.db.exec(triggerSql);
+      };
+
+      ensureFts(
+        'nodes_fts',
+        "CREATE VIRTUAL TABLE nodes_fts USING fts5(title, source, description, content='nodes', content_rowid='id');",
+        `
+          DROP TRIGGER IF EXISTS nodes_fts_ai;
+          DROP TRIGGER IF EXISTS nodes_fts_ad;
+          DROP TRIGGER IF EXISTS nodes_fts_au;
+          CREATE TRIGGER nodes_fts_ai AFTER INSERT ON nodes BEGIN
+            INSERT INTO nodes_fts(rowid, title, source, description)
+            VALUES (new.id, new.title, new.source, new.description);
+          END;
+          CREATE TRIGGER nodes_fts_ad AFTER DELETE ON nodes BEGIN
+            INSERT INTO nodes_fts(nodes_fts, rowid, title, source, description)
+            VALUES('delete', old.id, old.title, old.source, old.description);
+          END;
+          CREATE TRIGGER nodes_fts_au AFTER UPDATE OF title, source, description ON nodes BEGIN
+            INSERT INTO nodes_fts(nodes_fts, rowid, title, source, description)
+            VALUES('delete', old.id, old.title, old.source, old.description);
+            INSERT INTO nodes_fts(rowid, title, source, description)
+            VALUES (new.id, new.title, new.source, new.description);
+          END;
+        `,
+        "INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild');",
+      );
+
+      ensureFts(
+        'chunks_fts',
+        "CREATE VIRTUAL TABLE chunks_fts USING fts5(text, content='chunks', content_rowid='id');",
+        `
+          DROP TRIGGER IF EXISTS chunks_fts_ai;
+          DROP TRIGGER IF EXISTS chunks_fts_ad;
+          DROP TRIGGER IF EXISTS chunks_fts_au;
+          CREATE TRIGGER chunks_fts_ai AFTER INSERT ON chunks BEGIN
+            INSERT INTO chunks_fts(rowid, text)
+            VALUES (new.id, new.text);
+          END;
+          CREATE TRIGGER chunks_fts_ad AFTER DELETE ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, text)
+            VALUES('delete', old.id, old.text);
+          END;
+          CREATE TRIGGER chunks_fts_au AFTER UPDATE OF text ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, text)
+            VALUES('delete', old.id, old.text);
+            INSERT INTO chunks_fts(rowid, text)
+            VALUES (new.id, new.text);
+          END;
+        `,
+        "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');",
+      );
+    } catch (error) {
+      console.warn('Failed to ensure FTS tables:', error);
+    }
+  }
+
+  private buildProbeError(error: unknown): IntegrityProbeResult {
+    const message = error instanceof Error ? error.message : String(error);
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code?: unknown }).code === 'string'
+        ? String((error as { code: string }).code)
+        : undefined;
+
+    return { ok: false, error: message, code };
+  }
+
+  private runIntegrityProbe(fn: () => void): IntegrityProbeResult {
+    try {
+      fn();
+      return { ok: true };
+    } catch (error) {
+      return this.buildProbeError(error);
+    }
+  }
+
+  private refreshIntegrityReportForCorruptionError(error: unknown): void {
+    if (this.isSqliteCorruptError(error)) {
+      this.getIntegrityReport(true);
+    }
+  }
+
+  private inspectIntegrity(): DatabaseIntegrityReport {
+    const connected = this.runIntegrityProbe(() => {
+      this.db.prepare('SELECT 1').get();
+    }).ok;
+
+    const quickCheck = this.runIntegrityProbe(() => {
+      const rows = this.db.prepare('PRAGMA quick_check').pluck().all() as string[];
+      if (!(rows.length === 1 && rows[0] === 'ok')) {
+        throw new Error(rows.join('\n') || 'quick_check failed');
+      }
+    });
+
+    const integrityCheck = this.runIntegrityProbe(() => {
+      const rows = this.db.prepare('PRAGMA integrity_check').pluck().all() as string[];
+      if (!(rows.length === 1 && rows[0] === 'ok')) {
+        throw new Error(rows.join('\n') || 'integrity_check failed');
+      }
+    });
+
+    const baseTables: Record<'nodes' | 'edges' | 'chunks', IntegrityProbeResult> = {
+      nodes: this.runIntegrityProbe(() => {
+        this.db.prepare('SELECT COUNT(*) FROM nodes').pluck().get();
+      }),
+      edges: this.runIntegrityProbe(() => {
+        this.db.prepare('SELECT COUNT(*) FROM edges').pluck().get();
+      }),
+      chunks: this.runIntegrityProbe(() => {
+        this.db.prepare('SELECT COUNT(*) FROM chunks').pluck().get();
+      }),
+    };
+
+    const hasTable = (name: string) =>
+      Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+
+    const ftsSchemaExists: Record<FtsSurfaceName, boolean> = {
+      nodes: hasTable('nodes_fts'),
+      chunks: hasTable('chunks_fts'),
+    };
+
+    const ftsProbeResults: Record<FtsSurfaceName, IntegrityProbeResult> = {
+      nodes: ftsSchemaExists.nodes
+        ? this.runIntegrityProbe(() => {
+            this.db.prepare('SELECT COUNT(*) FROM nodes_fts').pluck().get();
+          })
+        : { ok: false, error: 'nodes_fts missing' },
+      chunks: ftsSchemaExists.chunks
+        ? this.runIntegrityProbe(() => {
+            this.db.prepare('SELECT COUNT(*) FROM chunks_fts').pluck().get();
+          })
+        : { ok: false, error: 'chunks_fts missing' },
+    };
+
+    const ftsTables = {
+      nodes: ftsSchemaExists.nodes && ftsProbeResults.nodes.ok,
+      chunks: ftsSchemaExists.chunks && ftsProbeResults.chunks.ok,
+    };
+
+    let foreignKeyViolations = -1;
+    if (baseTables.nodes.ok && baseTables.edges.ok) {
+      const foreignKeyProbe = this.runIntegrityProbe(() => {
+        foreignKeyViolations = Number(
+          (this.db.prepare('SELECT COUNT(*) FROM pragma_foreign_key_check').pluck().get() as number | undefined) ?? 0
+        );
+      });
+      if (!foreignKeyProbe.ok) {
+        foreignKeyViolations = -1;
+      }
+    }
+
+    const lostAndFoundExists = hasTable('lost_and_found');
+    const vecTables = {
+      nodes: hasTable('vec_nodes'),
+      chunks: hasTable('vec_chunks'),
+    };
+
+    const baseTablesReadable = Object.values(baseTables).every(probe => probe.ok);
+    const repairableFtsTables = (Object.entries(ftsProbeResults) as Array<[FtsSurfaceName, IntegrityProbeResult]>)
+      .filter(([name, probe]) => ftsSchemaExists[name] && !probe.ok)
+      .map(([name]) => name);
+
+    let state: DatabaseIntegrityReport['state'] = 'healthy';
+    if (!quickCheck.ok || !integrityCheck.ok) {
+      state = baseTablesReadable && repairableFtsTables.length > 0 ? 'degraded_fts' : 'corrupt';
+    } else if (!baseTablesReadable) {
+      state = 'corrupt';
+    } else if (repairableFtsTables.length > 0) {
+      state = 'degraded_fts';
+    }
+
+    let summary = 'Database integrity checks passed.';
+    if (state === 'degraded_fts') {
+      summary = `Rebuildable FTS surfaces are degraded: ${repairableFtsTables.join(', ')}. Base tables are still readable.`;
+    } else if (state === 'corrupt') {
+      summary = 'Canonical database integrity checks are failing. Treat the database as corrupted.';
+    }
+
+    const firstError =
+      quickCheck.error ||
+      integrityCheck.error ||
+      Object.values(baseTables).find(probe => !probe.ok)?.error ||
+      Object.values(ftsProbeResults).find(probe => !probe.ok)?.error;
+
+    return {
+      state,
+      connected,
+      quickCheck,
+      integrityCheck,
+      baseTables,
+      ftsTables,
+      ftsProbeResults,
+      repairableFtsTables,
+      canRepairFts: state === 'degraded_fts' && repairableFtsTables.length > 0,
+      foreignKeyViolations,
+      lostAndFoundExists,
+      vecTables,
+      summary,
+      error: firstError,
+    };
+  }
+
+  public getIntegrityReport(forceRefresh = false): DatabaseIntegrityReport {
+    if (!this.integrityReport || forceRefresh) {
+      this.integrityReport = this.inspectIntegrity();
+    }
+    return this.integrityReport;
+  }
+
   private handleError(error: any): DatabaseError {
     return {
       message: error.message || 'SQLite operation failed',
@@ -1201,7 +1476,10 @@ class SQLiteClient {
     }
 
     const sqliteError = error as Error & { code?: string };
-    return sqliteError.code === 'SQLITE_CORRUPT' || /database disk image is malformed/i.test(sqliteError.message || '');
+    return (
+      sqliteError.code?.includes('CORRUPT') === true ||
+      /database disk image is malformed/i.test(sqliteError.message || '')
+    );
   }
 }
 

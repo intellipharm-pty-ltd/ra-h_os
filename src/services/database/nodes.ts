@@ -498,14 +498,11 @@ export class NodeService {
     if (!search) return 0;
 
     const ftsQuery = sanitizeFtsQuery(search);
-    const ftsExists = sqlite.isNodesFtsUsable() && sqlite.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes_fts'"
-    ).get();
     const { clauses, params } = this.buildNodeFilterClauses(filters);
 
-    if (ftsExists && ftsQuery) {
-      const whereClauses = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    if (sqlite.canUseFtsTable('nodes') && ftsQuery) {
       try {
+        const whereClauses = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
         const result = sqlite.query<{ total: number }>(`
           WITH matched_nodes AS (
             SELECT rowid
@@ -520,7 +517,7 @@ export class NodeService {
 
         return Number(result.rows[0]?.total ?? 0);
       } catch (error) {
-        sqlite.disableNodesFts('nodes_fts query failed during count search', error);
+        sqlite.disableFtsTable('nodes', 'nodes_fts query failed during count search', error);
       }
     }
 
@@ -549,11 +546,7 @@ export class NodeService {
   ): NodeSearchRow[] {
     const ftsQuery = sanitizeFtsQuery(search);
     if (!ftsQuery) return [];
-
-    const ftsExists = sqlite.isNodesFtsUsable() && sqlite.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes_fts'"
-    ).get();
-    if (!ftsExists) return [];
+    if (!sqlite.canUseFtsTable('nodes')) return [];
 
     const { clauses, params } = this.buildNodeFilterClauses(filters);
     const whereClauses = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -584,7 +577,7 @@ export class NodeService {
 
       return result.rows;
     } catch (error) {
-      sqlite.disableNodesFts('nodes_fts query failed during node search', error);
+      sqlite.disableFtsTable('nodes', 'nodes_fts query failed during node search', error);
       return [];
     }
   }

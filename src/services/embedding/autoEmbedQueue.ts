@@ -1,5 +1,6 @@
 import { embedNodeContent } from '@/services/embedding/ingestion';
 import { nodeService } from '@/services/database';
+import { getSQLiteClient } from '@/services/database/sqlite-client';
 
 interface AutoEmbedTask {
   nodeId: number;
@@ -87,6 +88,13 @@ export class AutoEmbedQueue {
   }
 
   private async executeTask(task: AutoEmbedTask) {
+    const sqlite = getSQLiteClient();
+    const integrity = sqlite.getIntegrityReport();
+    if (!sqlite.canUseFtsTable('chunks')) {
+      console.warn('[AutoEmbedQueue] Skipping chunk write because chunks FTS is degraded:', integrity.summary);
+      return;
+    }
+
     const node = await nodeService.getNodeById(task.nodeId);
     if (!node) {
       console.warn('[AutoEmbedQueue] Node missing, skipping', task.nodeId);
