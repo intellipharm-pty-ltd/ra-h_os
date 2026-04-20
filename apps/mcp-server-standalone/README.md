@@ -15,12 +15,13 @@ Other useful commands:
 ```bash
 npx -y ra-h-mcp-server@latest setup --client cursor --yes
 npx -y ra-h-mcp-server@latest setup --client codex --yes
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes --install-rules --target .
 npx -y ra-h-mcp-server@latest init-db
 npx -y ra-h-mcp-server@latest doctor
 npx -y ra-h-mcp-server@latest print-config --client claude-code
 ```
 
-`--yes` lets the installer write supported client config automatically. Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
+`--client` accepts a single client or comma-separated clients. `--yes` lets the installer write supported client config automatically. Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 
 Important contract:
 - `@latest` is the default user-facing install path
@@ -96,7 +97,7 @@ Retrieve relevant RA-H context before substantive work, search before creating, 
 Install or refresh that guidance without replacing the rest of the memory file:
 
 ```bash
-npx -y ra-h-mcp-server@latest install-rules --client codex --target . --yes
+npx -y ra-h-mcp-server@latest install-rules --client claude-code,codex --target . --yes
 ```
 
 RA-H should still work well without this line. The MCP tools, server instructions, skills, and docs are meant to carry the core behavior on their own.

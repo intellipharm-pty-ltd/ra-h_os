@@ -15,9 +15,10 @@ Other clients:
 ```bash
 npx -y ra-h-mcp-server@latest setup --client cursor --yes
 npx -y ra-h-mcp-server@latest setup --client codex --yes
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
 ```
 
-`--yes` lets the installer write supported client config automatically. Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
+`--client` accepts a single client or comma-separated clients. `--yes` lets the installer write supported client config automatically. Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 
 Verify the install:
 
@@ -31,8 +32,10 @@ For demo isolation or a separate DB:
 
 ```bash
 npx -y ra-h-mcp-server@latest setup \
-  --client claude-code \
+  --client claude-code,codex \
   --yes \
+  --install-rules \
+  --target "$HOME/Desktop/ra-h_os-demo" \
   --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
 ```
 
@@ -147,5 +150,5 @@ You are helping build a thoughtful graph of atomic units of context.
 The installer can add or refresh this section without replacing the rest of the memory file:
 
 ```bash
-npx -y ra-h-mcp-server@latest install-rules --client codex --target . --yes
+npx -y ra-h-mcp-server@latest install-rules --client claude-code,codex --target . --yes
 ```

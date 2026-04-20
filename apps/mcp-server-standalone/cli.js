@@ -34,18 +34,19 @@ function usage() {
 
 Usage:
   ra-h-mcp-server                         Start MCP stdio server
-  ra-h-mcp-server setup --client <name>   Configure MCP for an agent
+  ra-h-mcp-server setup --client <name>   Configure MCP for one or more agents
   ra-h-mcp-server doctor                  Verify package, DB, and schema
   ra-h-mcp-server init-db                 Create/verify the RA-H SQLite DB
   ra-h-mcp-server print-config --client <name>
   ra-h-mcp-server install-rules --client <name> [--target <path>]
 
 Options:
-  --client <name>        claude-code, claude-desktop, cursor, codex, opencode, vscode, windsurf, aider
+  --client <name[,name]> claude-code, claude-desktop, cursor, codex, opencode, vscode, windsurf, aider
   --db <path>            Override DB path for this command
   --scope <scope>        user or project (default: user)
   --pin current          Use this package version instead of @latest in generated config
   --yes                  Write supported config files without prompting
+  --install-rules        Also install RA-H graph behavior into each client's repo memory file
   --print-only           Print config/rules without writing files
   --target <path>        Directory for project rule files
 `);
@@ -59,6 +60,7 @@ function parseArgs(argv) {
     scope: 'user',
     pin: null,
     yes: false,
+    installRules: false,
     printOnly: false,
     target: null,
   };
@@ -69,12 +71,14 @@ function parseArgs(argv) {
       args.help = true;
     } else if (arg === '--yes' || arg === '-y') {
       args.yes = true;
+    } else if (arg === '--install-rules' || arg === '--rules') {
+      args.installRules = true;
     } else if (arg === '--print-only' || arg === '--dry-run') {
       args.printOnly = true;
-    } else if (['--client', '--db', '--scope', '--pin', '--target'].includes(arg)) {
+    } else if (['--client', '--clients', '--db', '--scope', '--pin', '--target'].includes(arg)) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) fail(`${arg} requires a value`);
-      args[arg.slice(2)] = value;
+      args[arg === '--clients' ? 'client' : arg.slice(2)] = value;
       i += 1;
     } else {
       args._.push(arg);
@@ -337,10 +341,21 @@ function formatSnippet(snippet) {
 }
 
 function validateClient(client) {
-  if (!client) fail('Missing --client');
   if (!SUPPORTED_CLIENTS.has(client)) {
     fail(`Unsupported client "${client}". Supported: ${Array.from(SUPPORTED_CLIENTS).join(', ')}`);
   }
+}
+
+function resolveClients(rawClient) {
+  if (!rawClient) fail('Missing --client');
+  const clients = rawClient
+    .split(',')
+    .map((client) => client.trim())
+    .filter(Boolean);
+
+  if (clients.length === 0) fail('Missing --client');
+  clients.forEach(validateClient);
+  return [...new Set(clients)];
 }
 
 function rulesSnippet() {
@@ -409,18 +424,20 @@ function commandDoctor(args) {
 }
 
 function commandPrintConfig(args) {
-  validateClient(args.client);
+  const clients = resolveClients(args.client);
   const dbPath = resolveDbPath(args);
-  const config = clientConfig(args.client, args, dbPath);
-  console.log(formatSnippet(config.snippet));
-  if (config.note) log(config.note);
-  if (config.path) log(`Target path: ${config.path}`);
+  clients.forEach((client) => {
+    const config = clientConfig(client, args, dbPath);
+    if (clients.length > 1) log(`Config for ${client}:`);
+    console.log(formatSnippet(config.snippet));
+    if (config.note) log(config.note);
+    if (config.path) log(`Target path: ${config.path}`);
+  });
 }
 
-function commandInstallRules(args) {
-  validateClient(args.client);
+function installRulesForClient(client, args) {
   const content = rulesSnippet();
-  const targetPath = rulesTarget(args.client, args.target);
+  const targetPath = rulesTarget(client, args.target);
 
   if (args.printOnly || !args.yes) {
     console.log(content);
@@ -435,13 +452,13 @@ function commandInstallRules(args) {
   log(`Updated rules in ${targetPath}`);
 }
 
-function commandSetup(args) {
-  validateClient(args.client);
-  const dbPath = resolveDbPath(args);
-  initDb(dbPath);
-  log(`Database ready at ${dbPath}`);
+function commandInstallRules(args) {
+  resolveClients(args.client).forEach((client) => installRulesForClient(client, args));
+}
 
-  const config = clientConfig(args.client, args, dbPath);
+function setupClient(client, args, dbPath) {
+  const config = clientConfig(client, args, dbPath);
+  log(`Configuring ${client}`);
   console.log(formatSnippet(config.snippet));
   if (config.path) log(`MCP config target: ${config.path}`);
   if (config.note) log(config.note);
@@ -460,9 +477,23 @@ function commandSetup(args) {
     log('Automatic config writing is not available for this client; copy the printed config.');
   }
 
-  const rulePath = rulesTarget(args.client, args.target);
+  if (args.installRules) {
+    installRulesForClient(client, args);
+    return;
+  }
+
+  const rulePath = rulesTarget(client, args.target);
   log(`Recommended rules target: ${rulePath}`);
-  log(`Install rules with: npx -y ${packageSpec(args)} install-rules --client ${args.client} --target <repo> --yes`);
+  log(`Install rules with: npx -y ${packageSpec(args)} install-rules --client ${client} --target <repo> --yes`);
+}
+
+function commandSetup(args) {
+  const clients = resolveClients(args.client);
+  const dbPath = resolveDbPath(args);
+  initDb(dbPath);
+  log(`Database ready at ${dbPath}`);
+
+  clients.forEach((client) => setupClient(client, args, dbPath));
   commandDoctor(args);
 }
 

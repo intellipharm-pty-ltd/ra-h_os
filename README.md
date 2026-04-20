@@ -88,6 +88,12 @@ npx -y ra-h-mcp-server@latest setup --client cursor --yes
 npx -y ra-h-mcp-server@latest setup --client codex --yes
 ```
 
+Multiple clients can be installed in one pass. This is the best path if you use both Claude Code and Codex:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
+```
+
 Notes:
 - `--yes` lets the installer write supported client config automatically.
 - Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
@@ -165,8 +171,10 @@ SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local
 npm run dev
 
 npx -y ra-h-mcp-server@latest setup \
-  --client claude-code \
+  --client claude-code,codex \
   --yes \
+  --install-rules \
+  --target "$HOME/Desktop/ra-h_os-demo" \
   --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
 ```
 
@@ -231,7 +239,7 @@ You are helping build a thoughtful graph of atomic units of context.
 Or install that guidance into the repo memory file:
 
 ```bash
-npx -y ra-h-mcp-server@latest install-rules --client codex --target . --yes
+npx -y ra-h-mcp-server@latest install-rules --client claude-code,codex --target . --yes
 ```
 
 Available tools:
