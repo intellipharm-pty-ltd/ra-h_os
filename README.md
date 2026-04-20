@@ -9,7 +9,7 @@
  ╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝
 ```
 
-**TL;DR:** Clone this repository and you get a local SQLite knowledge graph plus a UI and standalone MCP server. External agents can read and write the graph, while the app owns chunking and embedding from node source.
+**TL;DR:** Use the MCP quick install if you want Claude Code, Cursor, Codex, or another agent to read and write your local graph. Clone this repository only if you also want the local browser UI.
 
 [![Watch the demo](https://img.youtube.com/vi/IA02YB8mInM/hqdefault.jpg)](https://youtu.be/IA02YB8mInM?si=WoWpNE9QZEKEukvZ)
 
@@ -47,16 +47,72 @@ Current contract:
 
 ## Install
 
+### Which install should I use?
+
+| You want... | Use this path |
+|-------------|---------------|
+| Your AI coding agent can read/write your RA-H graph | **Option A: MCP-only quick install** |
+| A browser UI at `localhost:3000` | **Option B: Full local app** |
+| A clean demo that does not touch your real graph | **Demo-safe isolated install** |
+
+### Option A: MCP-only quick install
+
+If you mainly want Claude Code, Cursor, Codex, or another coding agent to use RA-H, start here.
+
+For Claude Code:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
+```
+
+Then fully restart Claude Code. On Mac, use **Cmd+Q**, then reopen it.
+
+Verify:
+
+```bash
+npx -y ra-h-mcp-server@latest doctor
+```
+
+Then ask your agent:
+
+```text
+Do you have RA-H tools available?
+```
+
+You should see tools like `queryNodes`, `retrieveQueryContext`, `createNode`, and `readSkill`.
+
+Other clients:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client cursor --yes
+npx -y ra-h-mcp-server@latest setup --client codex
+```
+
+Notes:
+- `--yes` lets the installer write supported client config automatically.
+- Codex uses TOML config, so the installer prints the block to add.
+- The MCP-only path does not clone this repo and does not start the browser UI.
+- The installer defaults to the latest published MCP package. For release/debug reproducibility, pin an exact version intentionally.
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes --pin current
+```
+
+### Option B: Full local app
+
+Use this if you want the browser UI at `localhost:3000`.
+
 ```bash
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm rebuild better-sqlite3
-npm run bootstrap:local
+npm run setup:local
 npm run dev
 ```
 
 Open [localhost:3000](http://localhost:3000). Done.
+
+If you also want your coding agent connected to the same database, run Option A after the app setup.
 
 Full install details:
 - [docs/README.md](./docs/README.md)
@@ -97,16 +153,40 @@ This is a standard SQLite file. You can:
 
 ---
 
+## Demo-safe isolated install
+
+If you need a clean demo without touching your normal RA-H database:
+
+```bash
+git clone https://github.com/bradwmorris/ra-h_os.git ~/Desktop/ra-h_os-demo
+cd ~/Desktop/ra-h_os-demo
+npm install
+SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local
+npm run dev
+
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code \
+  --yes \
+  --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
+```
+
 ## Connect Claude Code (or other MCP clients)
 
-Add to your `~/.claude.json`:
+The recommended path is the CLI installer:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
+```
+
+Manual config is still useful for troubleshooting or unsupported clients. Add this to your MCP client config and restart the client fully:
+
 
 ```json
 {
   "mcpServers": {
     "ra-h": {
       "command": "npx",
-      "args": ["--yes", "ra-h-mcp-server@2.1.2"]
+      "args": ["-y", "ra-h-mcp-server@latest"]
     }
   }
 }
@@ -114,7 +194,7 @@ Add to your `~/.claude.json`:
 
 Restart Claude Code fully (**Cmd+Q on Mac**, not just closing the window).
 
-If you publish a newer MCP release and want clients to use it immediately, bump the pinned version here and restart the client. Do not rely on plain `npx ra-h-mcp-server` always refreshing instantly.
+If you need a frozen version for debugging, pin it explicitly and restart the client.
 
 **Verify it worked:** Ask Claude `Do you have RA-H tools available?` You should see tools like `queryNodes`, `retrieveQueryContext`, `createNode`, and `readSkill`.
 
@@ -204,7 +284,8 @@ See [docs/2_schema.md](./docs/2_schema.md) and [docs/8_mcp.md](./docs/8_mcp.md) 
 
 | Command | What it does |
 |---------|--------------|
-| `npm run bootstrap:local` | Create `.env.local`, create the SQLite DB, and seed the base schema |
+| `npm run setup:local` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed the base schema |
+| `npm run bootstrap:local` | Lower-level helper used by `setup:local`; most users should not run this directly |
 | `npm run dev` | Start the app at localhost:3000 |
 | `npm run dev:local` | Alias for `npm run dev` |
 | `npm run build` | Production build |

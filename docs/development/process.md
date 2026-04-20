@@ -16,8 +16,7 @@ This repo is the open-source build of RA-H. Keep changes focused, reviewable, an
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm rebuild better-sqlite3
-scripts/dev/bootstrap-local.sh
+npm run setup:local
 npm run dev
 ```
 
@@ -57,4 +56,4 @@ npm run build
   - stricter node/edge validation
   - improved eval logging/UI
   - reduced 5-scenario eval suite with archived legacy scenarios
-- after pulling changes, if SQLite routes fail locally, run `npm rebuild better-sqlite3` under the same Node version used for `npm run dev`
+- after pulling changes, if SQLite routes fail locally, run `npm run setup:local` under the same Node version used for `npm run dev`

@@ -1,50 +1,69 @@
 # RA-H MCP Server
 
-Connect Claude Code and Claude Desktop to your RA-H knowledge base. This package talks directly to an existing RA-H SQLite database.
+Connect Claude Code, Claude Desktop, Cursor, Codex, and other MCP clients to your RA-H knowledge base. This package talks directly to the local RA-H SQLite database.
 
-## Install
+## Quick Install
 
 ```bash
-npx --yes ra-h-mcp-server@2.1.2
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
 ```
 
-Run RA-H once first so the database exists, then use the MCP server from any client.
+The setup command creates or verifies the database, prints or writes MCP config for the selected client, and runs `doctor`.
+
+Other useful commands:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client cursor --yes
+npx -y ra-h-mcp-server@latest setup --client codex
+npx -y ra-h-mcp-server@latest init-db
+npx -y ra-h-mcp-server@latest doctor
+npx -y ra-h-mcp-server@latest print-config --client claude-code
+```
+
+`--yes` lets the installer write supported JSON client config automatically. Codex uses TOML config, so the installer prints the block to add.
 
 Important contract:
-- pinned package version recommended
+- `@latest` is the default user-facing install path
+- exact versions are only for release/debug reproducibility
 - standalone MCP reads and writes node data directly
 - standalone MCP does not own chunking, embeddings, or live schema migration on an existing DB
 
 ## Configure Claude Code / Claude Desktop
 
-Add to your Claude config (`~/.claude.json` or Claude Desktop settings):
+Prefer the setup command above. Manual config is still available for troubleshooting:
 
 ```json
 {
   "mcpServers": {
     "ra-h": {
       "command": "npx",
-      "args": ["--yes", "ra-h-mcp-server@2.1.2"]
+      "args": ["-y", "ra-h-mcp-server@latest"]
     }
   }
 }
 ```
 
-Restart Claude fully. Done.
-
-If you publish a newer MCP release and need this client to pick it up immediately, bump the pinned version here and restart Claude. Do not assume plain `npx ra-h-mcp-server` always refreshes instantly.
+Restart Claude fully. If you need to freeze behavior for debugging, pin an exact version intentionally and restart the client.
 
 ## Requirements
 
 - Node.js 18-22 LTS recommended
-- an existing RA-H database at `~/Library/Application Support/RA-H/db/rah.sqlite`
-- run the RA-H app at least once before using the standalone MCP server
+- a RA-H database at `~/Library/Application Support/RA-H/db/rah.sqlite`, created by `setup`, `init-db`, or the app
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RAH_DB_PATH` | `~/Library/Application Support/RA-H/db/rah.sqlite` | Database path |
+
+For demos or isolated installs:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code \
+  --yes \
+  --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
+```
 
 ## What To Expect
 
@@ -98,6 +117,7 @@ Do not create contradictory instruction files. Prefer one short reinforcement li
 
 Verification tip:
 - after config changes, fully restart the client and confirm you can see tools like `queryNodes`, `retrieveQueryContext`, and `createNode`
+- run `npx -y ra-h-mcp-server@latest doctor` to verify package version, DB path, schema health, and node count
 
 ## Node Metadata Contract
 
@@ -151,6 +171,10 @@ This is a lightweight CRUD server. Advanced features are handled by the main app
 ```bash
 # Test database connection
 node -e "const {initDatabase,query}=require('./services/sqlite-client');initDatabase();console.log(query('SELECT COUNT(*) as c FROM nodes')[0].c,'nodes')"
+
+# Test CLI setup path
+node index.js init-db --db /tmp/rah-test.sqlite
+node index.js doctor --db /tmp/rah-test.sqlite
 
 # Run the server
 node index.js

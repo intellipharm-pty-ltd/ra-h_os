@@ -13,9 +13,13 @@ Open-source, local-first knowledge graph app with MCP integration.
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm rebuild better-sqlite3
-scripts/dev/bootstrap-local.sh
+npm run setup:local
 npm run dev
+```
+
+## MCP Setup
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
 ```
 
 ## Source of Truth for Workflow

@@ -36,6 +36,13 @@ const skillService = require('./services/skillService');
 const retrievalService = require('./services/retrievalService');
 const { directNodeLookup } = require('./services/directNodeLookupService');
 
+const cliCommands = new Set(['setup', 'doctor', 'init-db', 'print-config', 'install-rules', '--help', '-h']);
+if (cliCommands.has(process.argv[2])) {
+  const { runCli } = require('./cli');
+  runCli(process.argv.slice(2));
+  process.exit(0);
+}
+
 // Server info
 const serverInfo = {
   name: 'ra-h-standalone',

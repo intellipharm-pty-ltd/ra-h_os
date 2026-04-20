@@ -2,6 +2,40 @@
 
 RA-H exposes MCP tools for direct graph work against the local database or app API.
 
+## Quick Install
+
+For normal users, configure MCP through the published package:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
+```
+
+Other clients:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client cursor --yes
+npx -y ra-h-mcp-server@latest setup --client codex
+```
+
+`--yes` lets the installer write supported JSON client config automatically. Codex uses TOML config, so the installer prints the block to add.
+
+Verify the install:
+
+```bash
+npx -y ra-h-mcp-server@latest doctor
+```
+
+Manual JSON/TOML config should be treated as troubleshooting or unsupported-client fallback. Public docs should not point users at stale pinned versions; use `@latest` by default and pin exact versions only for release/debug reproducibility.
+
+For demo isolation or a separate DB:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code \
+  --yes \
+  --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
+```
+
 Important runtime distinction:
 
 - the app MCP surface talks to the running app/API

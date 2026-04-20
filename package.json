@@ -7,6 +7,7 @@
   "author": "Bradley Morris",
   "scripts": {
     "bootstrap:local": "node ./scripts/dev/bootstrap-local.mjs",
+    "setup:local": "node ./scripts/dev/setup-local.mjs",
     "dev": "cross-env NEXT_PUBLIC_DEPLOYMENT_MODE=local NEXT_PUBLIC_ENABLE_SUBSCRIPTION_BACKEND=false NODE_OPTIONS=--dns-result-order=ipv4first next dev",
     "dev:local": "npm run dev",
     "dev:evals": "cross-env RAH_EVALS_LOG=1 NEXT_PUBLIC_DEPLOYMENT_MODE=local NEXT_PUBLIC_ENABLE_SUBSCRIPTION_BACKEND=false NODE_OPTIONS=--dns-result-order=ipv4first next dev",

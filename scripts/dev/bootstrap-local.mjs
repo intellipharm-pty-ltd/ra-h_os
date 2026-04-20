@@ -78,6 +78,38 @@ function ensureEnvFile() {
   log('Created .env.local from .env.example');
 }
 
+function ensureEnvValue(key, value) {
+  if (!value) return;
+
+  const lines = fs.existsSync(targetEnv)
+    ? fs.readFileSync(targetEnv, 'utf8').split(/\r?\n/)
+    : [];
+  let found = false;
+
+  const nextLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(`${key}=`)) {
+      found = true;
+      return `${key}=${value}`;
+    }
+    if (trimmed.startsWith(`# ${key}=`) || trimmed.startsWith(`#${key}=`)) {
+      found = true;
+      return `${key}=${value}`;
+    }
+    return line;
+  });
+
+  if (!found) {
+    if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== '') {
+      nextLines.push('');
+    }
+    nextLines.push(`${key}=${value}`);
+  }
+
+  fs.writeFileSync(targetEnv, `${nextLines.join('\n').replace(/\n+$/, '')}\n`);
+  log(`Set ${key} in .env.local`);
+}
+
 function ensureCoreSchema(db) {
   db.pragma('foreign_keys = ON');
   db.exec(`
@@ -550,7 +582,10 @@ function main() {
   ensureEnvFile();
 
   const env = parseEnvFile(targetEnv);
-  const dbPath = expandPath(env.SQLITE_DB_PATH || getDefaultDbPath());
+  if (process.env.SQLITE_DB_PATH) {
+    ensureEnvValue('SQLITE_DB_PATH', process.env.SQLITE_DB_PATH);
+  }
+  const dbPath = expandPath(process.env.SQLITE_DB_PATH || env.SQLITE_DB_PATH || getDefaultDbPath());
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   if (!fs.existsSync(dbPath)) {
     fs.closeSync(fs.openSync(dbPath, 'w'));

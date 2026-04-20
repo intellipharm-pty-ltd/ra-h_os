@@ -18,17 +18,17 @@ sudo apt install build-essential python3
 npm install -g windows-build-tools
 ```
 
-### `npm rebuild better-sqlite3` fails
+### `npm run setup:local` fails
 
 **Symptom:** Native module rebuild errors
 
 **Fix:**
-1. Ensure Node.js 18+ is installed
+1. Ensure Node.js 20.18.1+ is installed
 2. Delete `node_modules` and reinstall:
    ```bash
    rm -rf node_modules package-lock.json
    npm install
-   npm rebuild better-sqlite3
+   npm run setup:local
    ```
 
 ## Runtime Issues
@@ -38,7 +38,7 @@ npm install -g windows-build-tools
 **Symptom:** Error on `npm run dev`
 
 **Fixes:**
-1. Run the bootstrap script first: `scripts/dev/bootstrap-local.sh`
+1. Run local setup first: `npm run setup:local`
 2. Check `.env.local` exists (copy from `.env.example` if missing)
 3. Ensure database directory exists: `~/Library/Application Support/RA-H/db/`
 

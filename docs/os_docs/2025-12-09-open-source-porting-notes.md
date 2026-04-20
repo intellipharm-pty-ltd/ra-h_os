@@ -206,7 +206,7 @@ This document captures every change required to bring the private RA-H repo into
 
 ## 6. Testing
 - `npm run type-check` passes.
-- Local dev requires: `npm rebuild better-sqlite3` once per machine, `scripts/dev/bootstrap-local.sh`, `npm run dev`.
+- Local dev now uses: `npm run setup:local`, then `npm run dev`.
 - Manual smoke: open Settings → API Keys, add OpenAI + Anthropic keys (Anthropic test now succeeds), refresh; nodes/ui/chat all function.
 
 ## 7. Documentation Cleanup (2025-12-15)

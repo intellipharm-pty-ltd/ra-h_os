@@ -18,8 +18,7 @@ For larger features, open an issue first so scope and direction are clear.
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm rebuild better-sqlite3
-scripts/dev/bootstrap-local.sh
+npm run setup:local
 npm run dev
 ```
 

@@ -26,9 +26,21 @@
 ## Start Here
 
 If you just want RA-H OS working:
-1. Read [../README.md](../README.md)
-2. Follow [MCP](./8_mcp.md) if you want external-agent access
-3. Read [Full Local](./10_full-local.md) if you want a more local-first or community setup
+1. Use the MCP quick install below if you mainly want agent access.
+2. Use the local app quick start if you also want the browser UI.
+3. Read [Full Local](./10_full-local.md) if you want a more local-first or community setup.
+
+## MCP Quick Install
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code --yes
+```
+
+Run `doctor` after setup or whenever MCP feels stale:
+
+```bash
+npx -y ra-h-mcp-server@latest doctor
+```
 
 ## Local App Quick Start
 
@@ -36,8 +48,7 @@ If you just want RA-H OS working:
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm rebuild better-sqlite3
-npm run bootstrap:local
+npm run setup:local
 npm run dev
 ```
 
@@ -45,22 +56,22 @@ Open http://localhost:3000
 
 ## MCP Integration
 
-Add to your `~/.claude.json`:
+The recommended MCP setup is the CLI command above. Manual config is only for troubleshooting or unsupported clients:
 
 ```json
 {
   "mcpServers": {
     "ra-h": {
       "command": "npx",
-      "args": ["--yes", "ra-h-mcp-server@2.1.2"]
+      "args": ["-y", "ra-h-mcp-server@latest"]
     }
   }
 }
 ```
 
-If you publish a newer MCP release and need clients to use it immediately, bump the pinned version here and restart the client. Do not assume plain `npx ra-h-mcp-server` always refreshes instantly.
+If you need a frozen version for release/debug work, pin it intentionally and restart the client.
 
-Run RA-H once first so the database exists. The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source: readable `chunks`, full-text indexes, `vec_nodes`, and `vec_chunks`. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
+The setup command creates the default database if it does not exist. The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source: readable `chunks`, full-text indexes, `vec_nodes`, and `vec_chunks`. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
 
 ## Questions?
 

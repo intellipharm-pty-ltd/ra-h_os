@@ -2,8 +2,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = process.cwd();
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 const APP_SKILLS_DIR = path.join(ROOT, 'src/config/skills');
 const STANDALONE_SKILLS_DIR = path.join(ROOT, 'apps/mcp-server-standalone/skills');
 const CHECK_ONLY = process.argv.includes('--check');
