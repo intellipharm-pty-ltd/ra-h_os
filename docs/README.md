@@ -14,7 +14,7 @@
 | Doc | Description |
 |-----|-------------|
 | [Overview](./0_overview.md) | What RA-H OS is and what contract it shares with the main app |
-| [Schema](./2_schema.md) | Current SQLite contract |
+| [Schema + Search](./2_schema.md) | Current SQLite contract, indexing, and retrieval surfaces |
 | [Tools & Skills](./4_tools-and-guides.md) | MCP tools and skill system |
 | [Logging & Evals](./5_logging-and-evals.md) | Logs, evals, and debugging surfaces |
 | [UI](./6_ui.md) | Current pane and focus model |
@@ -60,7 +60,7 @@ Add to your `~/.claude.json`:
 
 If you publish a newer MCP release and need clients to use it immediately, bump the pinned version here and restart the client. Do not assume plain `npx ra-h-mcp-server` always refreshes instantly.
 
-Run RA-H once first so the database exists. The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
+Run RA-H once first so the database exists. The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source: readable `chunks`, full-text indexes, `vec_nodes`, and `vec_chunks`. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
 
 ## Questions?
 

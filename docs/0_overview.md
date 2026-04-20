@@ -53,6 +53,7 @@ Both versions follow the same core graph contract. The Mac app adds packaging, a
 - **Flexible pane system:** explicit `1 / 2 / 3` pane workspace with right-edge chat
 - **Single assistant:** one built-in RA-H runtime grounded in your graph and skills
 - **Retrieval split:** direct lookup for specific nodes, broader retrieval when the turn actually needs graph context
+- **Indexed retrieval:** source text becomes readable chunks, full-text indexes, and semantic vectors
 - **MCP server:** connect Claude Code and other external agents to the same graph
 - **Skills:** markdown procedures that shape graph work and agent behavior
 - **Extraction tools:** website, YouTube, and PDF ingestion paths
@@ -62,8 +63,8 @@ Both versions follow the same core graph contract. The Mac app adds packaging, a
 | Doc | Description |
 |-----|-------------|
 | [Architecture](./1_architecture.md) | Single-agent runtime, tools, and system design |
-| [Schema](./2_schema.md) | Database schema, node/edge structure |
-| [Context](./3_context.md) | How context flows through the system |
+| [Schema + Search](./2_schema.md) | Database schema, indexing, and retrieval surfaces |
+| [Grounding](./3_context.md) | How graph grounding flows through the system |
 | [Tools & Skills](./4_tools-and-guides.md) | Available tools, skill system |
 | [UI](./6_ui.md) | Component structure, panels, views |
 | [Voice](./7_voice.md) | Voice interface (STT/TTS) |

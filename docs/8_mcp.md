@@ -17,6 +17,7 @@ Important runtime distinction:
 - `createEdge` is a post-confirmation execution tool. Agents should propose likely edges first and only write them after the user explicitly confirms.
 - `queryNodes` searches title, description, and source.
 - `dimensions` are removed from the MCP contract.
+- `contexts` and context-capsule tools are removed from the MCP contract.
 
 ## Behavior Split
 
@@ -64,7 +65,21 @@ Write:
 - Keep writeback prompts terse and selective. The goal is not to ask constantly whether every useful sentence should be saved.
 - Do not assume MCP node creation immediately produces chunks or embeddings. The canonical contract is:
   - write node data first
-  - app-owned pipeline later creates chunks, FTS rows, and vectors
+  - app-owned pipeline later creates readable chunks, FTS rows, `vec_nodes`, and `vec_chunks`
+- Do not use `chunk_status = 'chunked'` as a promise that every chunk has a row in `vec_chunks`. Chunking and vector coverage are related but distinct.
+
+## Search And Indexing Notes
+
+MCP users should understand the same retrieval split as the app:
+
+- direct node lookup searches node title, description, and source
+- full-text search can match literal words in nodes or chunks
+- chunk search can find passages inside long source text
+- `vec_nodes` can find semantically similar whole nodes when node-level vectors exist
+- `vec_chunks` can find semantically similar passages when chunk-level vectors exist
+- standalone MCP does not generate embeddings itself
+
+If an external agent creates or updates a node through standalone MCP while the app is closed, the node can exist before its chunks and vectors do. The app-owned pipeline processes that later.
 
 ## Memory-File Rule
 

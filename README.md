@@ -33,7 +33,7 @@ Current contract:
 - node quality comes from `title`, `description`, `source`, `metadata`, and explicit `edges`
 - direct node lookup first for specific-node intent
 - `getContext` for orientation and `retrieveQueryContext` for broader current-turn grounding
-- standalone MCP writes node data, but the app owns chunking and embeddings
+- standalone MCP writes node data, but the app owns chunking and embeddings: `nodes.source` becomes readable `chunks`, node-level vectors in `vec_nodes`, and passage vectors in `vec_chunks`
 
 ---
 
