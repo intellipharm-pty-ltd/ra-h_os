@@ -2,20 +2,41 @@
 
 import { useState, useEffect, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { isFirstRun, markFirstRunComplete } from '@/services/storage/apiKeys';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+
+const FIRST_RUN_DISMISSED_KEY = 'ra-h-os.first-run.dismissed.v1';
 
 export default function FirstRunModal() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    if (isFirstRun()) {
-      setIsOpen(true);
-    }
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/settings/openai-key');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        const dismissed = window.localStorage.getItem(FIRST_RUN_DISMISSED_KEY) === 'true';
+        setIsOpen(!data.configured && !dismissed);
+      } catch {
+        if (!cancelled) {
+          const dismissed = window.localStorage.getItem(FIRST_RUN_DISMISSED_KEY) === 'true';
+          setIsOpen(!dismissed);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleClose = () => {
-    markFirstRunComplete();
+    window.localStorage.setItem(FIRST_RUN_DISMISSED_KEY, 'true');
     setIsOpen(false);
   };
 

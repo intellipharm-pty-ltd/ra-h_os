@@ -26,12 +26,9 @@ export function getPreferredOpenAiKey(): string | undefined {
     const fileKey = parseOpenAiKeyFromEnvFile(fs.readFileSync(envPath, 'utf8'));
     if (fileKey) return fileKey;
   } catch {
-    // Ignore missing/unreadable .env.local and fall back to process env.
+    // Ignore missing/unreadable .env.local and treat that as "not configured" for local mode.
   }
-
-  const envKey = process.env.OPENAI_API_KEY;
-  if (!envKey || envKey === PLACEHOLDER) return undefined;
-  return envKey;
+  return undefined;
 }
 
 export function hasPreferredOpenAiKey(): boolean {
