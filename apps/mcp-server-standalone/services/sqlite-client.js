@@ -89,11 +89,11 @@ function initDatabase() {
 
   db = new Database(dbPath);
 
-  // Configure SQLite for performance
+  // Configure SQLite for WAL-first app/MCP coexistence.
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('cache_size = 5000');
-  db.pragma('busy_timeout = 5000');
+  db.pragma('busy_timeout = 10000');
 
   validateExistingRahSchema(db);
 
@@ -254,19 +254,21 @@ function getDb() {
  * Execute a query and return rows.
  */
 function query(sql, params = []) {
-  const database = getDb();
-  const stmt = database.prepare(sql);
+  return runWithBusyRetry(() => {
+    const database = getDb();
+    const stmt = database.prepare(sql);
 
-  const sqlLower = sql.trim().toLowerCase();
-  if (sqlLower.startsWith('select') || sqlLower.startsWith('with') || sqlLower.startsWith('pragma') || sqlLower.includes('returning')) {
-    return params.length > 0 ? stmt.all(...params) : stmt.all();
-  } else {
-    const result = params.length > 0 ? stmt.run(...params) : stmt.run();
-    return {
-      changes: result.changes,
-      lastInsertRowid: Number(result.lastInsertRowid)
-    };
-  }
+    const sqlLower = sql.trim().toLowerCase();
+    if (sqlLower.startsWith('select') || sqlLower.startsWith('with') || sqlLower.startsWith('pragma') || sqlLower.includes('returning')) {
+      return params.length > 0 ? stmt.all(...params) : stmt.all();
+    } else {
+      const result = params.length > 0 ? stmt.run(...params) : stmt.run();
+      return {
+        changes: result.changes,
+        lastInsertRowid: Number(result.lastInsertRowid)
+      };
+    }
+  }, 'query');
 }
 
 /**
@@ -275,7 +277,38 @@ function query(sql, params = []) {
 function transaction(callback) {
   const database = getDb();
   const txn = database.transaction(callback);
-  return txn();
+  return runWithBusyRetry(() => txn(), 'transaction');
+}
+
+function isBusyOrLocked(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error && error.code ? String(error.code) : '';
+  return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || /database is locked|database busy/i.test(message);
+}
+
+function sleepSync(ms) {
+  const buffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(buffer);
+  Atomics.wait(view, 0, 0, ms);
+}
+
+function runWithBusyRetry(operation, label) {
+  const maxAttempts = 4;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isBusyOrLocked(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      lastError = error;
+      const delayMs = 100 * attempt * attempt;
+      console.warn(`[RA-H MCP] SQLite ${label} hit ${error instanceof Error ? error.message : String(error)}; retrying in ${delayMs}ms (${attempt}/${maxAttempts})`);
+      sleepSync(delayMs);
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -293,6 +326,7 @@ module.exports = {
   getDb,
   query,
   transaction,
+  runWithBusyRetry,
   closeDatabase,
   getDatabasePath
 };

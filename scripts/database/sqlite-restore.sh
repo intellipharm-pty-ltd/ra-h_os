@@ -32,6 +32,14 @@ mkdir -p "$DB_DIR"
 echo "Source backup: $SRC"
 echo "Target DB:     $DB_PATH"
 
+OWNERS="$(bash "$(dirname "$0")/rah-db-owners.sh" "$DB_PATH" || true)"
+if [ -n "$OWNERS" ] && [ "${RAH_ALLOW_LIVE_DB_RESTORE:-}" != "true" ]; then
+  echo "❌ Refusing restore while RA-H DB owners are live:" >&2
+  echo "$OWNERS" | sed 's/^/  /' >&2
+  echo "Close RA-H/MCP/dev processes first, or set RAH_ALLOW_LIVE_DB_RESTORE=true if you have deliberately quiesced them." >&2
+  exit 4
+fi
+
 echo "Verifying backup integrity before restore..."
 ICHECK=$(sqlite3 "$SRC" "PRAGMA integrity_check;")
 echo "  $ICHECK"

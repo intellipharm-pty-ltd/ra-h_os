@@ -46,6 +46,15 @@ Important runtime distinction:
 - standalone MCP can read and write nodes/edges without the app running, but it does not own chunking or embedding
 - if standalone MCP writes `nodes.source` while the app is closed, the app later processes that node through startup recovery
 
+## WAL / Multi-Surface Safety
+
+- RA-H uses SQLite WAL as the normal local multi-surface model.
+- The app, standalone MCP, Claude/Codex, and normal reads can coexist.
+- Normal writes should be short; lock collisions wait through SQLite `busy_timeout` plus retry/backoff where supported.
+- Standalone MCP remains first-class and does not require the app to be open.
+- Dangerous maintenance is different from normal reads/writes: restore, DB replacement, checkpoint/truncate, and deleting `rah.sqlite-wal` / `rah.sqlite-shm` require all app/dev/MCP DB owners to be closed first.
+- Use `scripts/database/rah-db-owners.sh "$HOME/Library/Application Support/RA-H/db/rah.sqlite"` before destructive maintenance.
+
 ## Core MCP Contract
 
 - `queryNodes` is the primary tool for direct node retrieval when the user is trying to find a specific existing node.

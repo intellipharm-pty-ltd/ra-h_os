@@ -1,6 +1,6 @@
 'use strict';
 
-const { query, getDb } = require('./sqlite-client');
+const { query, getDb, runWithBusyRetry } = require('./sqlite-client');
 
 /**
  * Get all edges.
@@ -74,12 +74,14 @@ function createEdge(edgeData) {
     VALUES (?, ?, ?, ?, ?)
   `);
 
-  const result = stmt.run(
-    from_node_id,
-    to_node_id,
-    JSON.stringify(context),
-    source,
-    now
+  const result = runWithBusyRetry(() => stmt.run(
+      from_node_id,
+      to_node_id,
+      JSON.stringify(context),
+      source,
+      now
+    ),
+    'createEdge'
   );
 
   const edgeId = Number(result.lastInsertRowid);
@@ -109,14 +111,14 @@ function updateEdge(id, updates) {
     };
 
     const stmt = db.prepare('UPDATE edges SET context = ? WHERE id = ?');
-    stmt.run(JSON.stringify(newContext), id);
+    runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), id), 'updateEdge');
   } else if (contextUpdates) {
     const newContext = {
       ...existing.context,
       ...contextUpdates
     };
     const stmt = db.prepare('UPDATE edges SET context = ? WHERE id = ?');
-    stmt.run(JSON.stringify(newContext), id);
+    runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), id), 'updateEdge');
   }
 
   return getEdgeById(id);

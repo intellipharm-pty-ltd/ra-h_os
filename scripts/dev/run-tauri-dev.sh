@@ -9,6 +9,8 @@ NEXT_LOG="${REPO_DIR}/logs/next-dev.log"
 
 mkdir -p "${REPO_DIR}/logs"
 
+"${REPO_DIR}/scripts/dev/guard-live-db-dev.sh"
+
 cleanup() {
   if [[ -n "${NEXT_PID:-}" ]]; then
     echo "Shutting down Next.js dev server (pid ${NEXT_PID})"

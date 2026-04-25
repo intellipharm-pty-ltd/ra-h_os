@@ -26,6 +26,13 @@ fi
 
 echo "Resolved DB path: $DB_PATH"
 
+OWNERS="$(bash "$(dirname "$0")/rah-db-owners.sh" "$DB_PATH" || true)"
+if [ -n "$OWNERS" ]; then
+  echo "⚠️  Live RA-H DB owners detected while creating a VACUUM INTO backup:"
+  echo "$OWNERS" | sed 's/^/  /'
+  echo "   Continuing because this backup path does not replace/delete DB, WAL, or SHM files."
+fi
+
 BACKUP_DIR="$(dirname "$0")/../backups"
 mkdir -p "$BACKUP_DIR"
 

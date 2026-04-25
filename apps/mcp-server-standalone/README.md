@@ -28,6 +28,7 @@ Important contract:
 - exact versions are only for release/debug reproducibility
 - standalone MCP reads and writes node data directly
 - standalone MCP does not own chunking, embeddings, or live schema migration on an existing DB
+- standalone MCP and the app use SQLite WAL; normal short reads/writes can coexist, while restore/replace/checkpoint/delete-WAL maintenance requires all DB owners to be closed first
 
 ## Configure Claude Code / Claude Desktop
 

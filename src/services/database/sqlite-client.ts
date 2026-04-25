@@ -47,11 +47,13 @@ class SQLiteClient {
   private db: Database.Database;
   private config: SQLiteConfig;
   private readonly readOnly: boolean;
+  private readonly maintenanceMode: boolean;
   private integrityReport: DatabaseIntegrityReport | null = null;
 
   private constructor() {
     this.config = this.getSQLiteConfig();
     this.readOnly = process.env.SQLITE_READONLY === 'true';
+    this.maintenanceMode = process.env.RAH_DB_MAINTENANCE === 'true';
     
     // Initialize database connection
     const dbDirectory = path.dirname(this.config.dbPath);
@@ -84,11 +86,11 @@ class SQLiteClient {
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('cache_size = 10000');
       this.db.pragma('temp_store = memory');
-      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('busy_timeout = 10000');
 
       this.withStartupWriteLock(() => {
         this.ensureCoreSchema();
-        // Ensure vector virtual tables are present and healthy
+        // Ensure vector virtual tables are present. Repair/rebuild is maintenance-only.
         this.ensureVectorTables();
         this.healVectorTablesIfCorrupt();
 
@@ -139,26 +141,28 @@ class SQLiteClient {
     params?: any[]
   ): SQLiteQueryResult<T> {
     try {
-      const sqlLower = sql.trim().toLowerCase();
-      
-      // Handle different query types
-      if (sqlLower.startsWith('select') || 
-          sqlLower.startsWith('with') ||
-          sqlLower.includes('returning')) {
-        // SELECT queries and queries with RETURNING clause
-        const stmt = this.db.prepare(sql);
-        const rows = params ? stmt.all(...params) : stmt.all();
-        return { rows: rows as T[] };
-      } else {
-        // INSERT/UPDATE/DELETE queries without RETURNING
-        const stmt = this.db.prepare(sql);
-        const result = params ? stmt.run(...params) : stmt.run();
-        return { 
-          rows: [],
-          changes: result.changes,
-          lastInsertRowid: Number(result.lastInsertRowid)
-        };
-      }
+      return this.runWithBusyRetry(() => {
+        const sqlLower = sql.trim().toLowerCase();
+
+        // Handle different query types
+        if (sqlLower.startsWith('select') ||
+            sqlLower.startsWith('with') ||
+            sqlLower.includes('returning')) {
+          // SELECT queries and queries with RETURNING clause
+          const stmt = this.db.prepare(sql);
+          const rows = params ? stmt.all(...params) : stmt.all();
+          return { rows: rows as T[] };
+        } else {
+          // INSERT/UPDATE/DELETE queries without RETURNING
+          const stmt = this.db.prepare(sql);
+          const result = params ? stmt.run(...params) : stmt.run();
+          return {
+            rows: [],
+            changes: result.changes,
+            lastInsertRowid: Number(result.lastInsertRowid)
+          };
+        }
+      }, 'query');
     } catch (error) {
       this.refreshIntegrityReportForCorruptionError(error);
       console.error('SQLite query error:', error);
@@ -178,15 +182,53 @@ class SQLiteClient {
         details: 'Transactions are not allowed in read-only mode'
       } as DatabaseError;
     }
-    // Proactively validate/repair vec vtables before any write transaction
+    // Proactively validate vec vtables before any write transaction. Destructive
+    // repair/rebuild is only allowed in explicit DB maintenance mode.
     this.healVectorTablesIfCorrupt();
     const txn = this.db.transaction(callback);
     try {
-      return txn();
+      return this.runWithBusyRetry(() => txn(), 'transaction');
     } catch (error) {
       this.refreshIntegrityReportForCorruptionError(error);
       throw this.handleError(error);
     }
+  }
+
+  private isBusyOrLocked(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code?: unknown }).code === 'string'
+        ? String((error as { code: string }).code)
+        : '';
+    return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || /database is locked|database busy/i.test(message);
+  }
+
+  private sleepSync(ms: number): void {
+    const buffer = new SharedArrayBuffer(4);
+    const view = new Int32Array(buffer);
+    Atomics.wait(view, 0, 0, ms);
+  }
+
+  private runWithBusyRetry<T>(operation: () => T, label: string): T {
+    const maxAttempts = 4;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return operation();
+      } catch (error) {
+        if (!this.isBusyOrLocked(error) || attempt === maxAttempts) {
+          throw error;
+        }
+        lastError = error;
+        const delayMs = 100 * attempt * attempt;
+        console.warn(`[SQLite] ${label} hit ${error instanceof Error ? error.message : String(error)}; retrying in ${delayMs}ms (${attempt}/${maxAttempts})`);
+        this.sleepSync(delayMs);
+      }
+    }
+    throw lastError;
   }
 
   public async testConnection(): Promise<boolean> {
@@ -908,6 +950,12 @@ class SQLiteClient {
         const msg = String(e?.message || '');
         const code = (e && e.code) ? String(e.code) : '';
         if (code === 'SQLITE_CORRUPT_VTAB' || msg.includes('database disk image is malformed') || msg.includes('CORRUPT_VTAB')) {
+          if (!this.maintenanceMode) {
+            console.warn(
+              `Detected corrupted virtual table ${table}, but repair is disabled outside RAH_DB_MAINTENANCE=true. Use explicit maintenance/rebuild flow.`
+            );
+            return;
+          }
           console.warn(`Detected corrupted virtual table ${table} (${code || 'error'}). Recreating...`);
           try {
             this.db.exec(`DROP TABLE IF EXISTS ${table};`);
