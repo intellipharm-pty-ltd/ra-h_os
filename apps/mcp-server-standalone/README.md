@@ -50,13 +50,13 @@ Restart Claude fully. If you need to freeze behavior for debugging, pin an exact
 ## Requirements
 
 - Node.js 18-22 LTS recommended
-- a RA-H database at `~/Library/Application Support/RA-H/db/rah.sqlite`, created by `setup`, `init-db`, or the app
+- a RA-H database at the platform default path, created by `setup`, `init-db`, or the app
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RAH_DB_PATH` | `~/Library/Application Support/RA-H/db/rah.sqlite` | Database path |
+| `RAH_DB_PATH` | Platform default app-data path | Database path |
 
 For demos or isolated installs:
 

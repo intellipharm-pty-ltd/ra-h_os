@@ -4,9 +4,11 @@
  */
 
 import Database from 'better-sqlite3';
-import path from 'path';
-import os from 'os';
-import { getDbVectorCapability as getVectorCapability } from '@/services/database/sqlite-runtime';
+import {
+  getDatabasePath as getRuntimeDatabasePath,
+  getDbVectorCapability as getVectorCapability,
+  getVecExtensionPath as getRuntimeVecExtensionPath
+} from '@/services/database/sqlite-runtime';
 
 /**
  * Serialize a float array to binary format for vec0 storage
@@ -35,27 +37,14 @@ export function deserializeFloat32Vector(blob: Buffer): number[] {
  * Get SQLite database path from environment or default location
  */
 export function getDatabasePath(): string {
-  const envPath = process.env.SQLITE_DB_PATH;
-  if (envPath) {
-    return envPath;
-  }
-
-  // Default path: ~/Library/Application Support/RA-H/db/rah.sqlite
-  const homeDir = os.homedir();
-  return path.join(homeDir, 'Library', 'Application Support', 'RA-H', 'db', 'rah.sqlite');
+  return getRuntimeDatabasePath();
 }
 
 /**
  * Get vec extension path from environment or default location
  */
 export function getVecExtensionPath(): string {
-  const envPath = process.env.SQLITE_VEC_EXTENSION_PATH;
-  if (envPath) {
-    return envPath;
-  }
-
-  // Default path relative to project root
-  return path.join(process.cwd(), 'vendor', 'sqlite-extensions', 'vec0.dylib');
+  return getRuntimeVecExtensionPath();
 }
 
 /**

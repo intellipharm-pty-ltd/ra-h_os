@@ -7,22 +7,30 @@ const os = require('node:os');
 
 /**
  * Get the database path.
- * Priority: RAH_DB_PATH env var > default app data location
+ * Priority: RAH_DB_PATH env var > SQLITE_DB_PATH env var > platform app data location
  */
-function getDatabasePath() {
-  if (process.env.RAH_DB_PATH) {
-    return process.env.RAH_DB_PATH;
+function getDefaultDbPath() {
+  const homeDir = os.homedir() || process.env.HOME || '~';
+
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
+    return path.join(appData, 'RA-H', 'db', 'rah.sqlite');
   }
 
-  // Default: ~/Library/Application Support/RA-H/db/rah.sqlite
+  if (process.platform === 'darwin') {
+    return path.join(homeDir, 'Library', 'Application Support', 'RA-H', 'db', 'rah.sqlite');
+  }
+
   return path.join(
-    os.homedir(),
-    'Library',
-    'Application Support',
+    process.env.XDG_DATA_HOME || path.join(homeDir, '.local', 'share'),
     'RA-H',
     'db',
     'rah.sqlite'
   );
+}
+
+function getDatabasePath() {
+  return process.env.RAH_DB_PATH || process.env.SQLITE_DB_PATH || getDefaultDbPath();
 }
 
 let db = null;

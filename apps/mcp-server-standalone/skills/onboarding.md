@@ -24,7 +24,7 @@ Start with product orientation and goal discovery first.
 Only bring up setup details if the user actually needs them:
 
 1. If they are on local/BYO-key mode, point them to Settings → API Keys.
-2. If they ask about the database location, tell them the default macOS path is `~/Library/Application Support/RA-H/db/rah.sqlite`.
+2. If they ask about the database location, tell them RA-H uses the platform default: macOS `~/Library/Application Support/RA-H/db/rah.sqlite`, Windows `%APPDATA%/RA-H/db/rah.sqlite`, Linux `~/.local/share/RA-H/db/rah.sqlite`.
 3. If API keys are relevant, explain them plainly:
    - **OpenAI** — powers embeddings, semantic retrieval, and extraction-related AI work.
    - **Anthropic** — mainly relevant for compatible runtime paths and local/dev setups.

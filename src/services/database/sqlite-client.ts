@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { DatabaseError } from '@/types/database';
+import { getDatabasePath, getVecExtensionPath } from '@/services/database/sqlite-runtime';
 
 export interface SQLiteConfig {
   dbPath: string;
@@ -115,17 +116,9 @@ class SQLiteClient {
   }
 
   private getSQLiteConfig(): SQLiteConfig {
-    const dbPath = process.env.SQLITE_DB_PATH || path.join(
-      process.env.HOME || '~', 
-      'Library/Application Support/RA-H/db/rah.sqlite'
-    );
-    
-    const vecExtensionPath = process.env.SQLITE_VEC_EXTENSION_PATH || 
-      './vendor/sqlite-extensions/vec0.dylib';
-
     return {
-      dbPath,
-      vecExtensionPath
+      dbPath: getDatabasePath(),
+      vecExtensionPath: getVecExtensionPath()
     };
   }
 
