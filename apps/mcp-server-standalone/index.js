@@ -557,7 +557,7 @@ async function main() {
             from_node_id: e.from_node_id,
             to_node_id: e.to_node_id,
             type: e.context?.type ?? null,
-            explanation: e.context?.explanation ?? null
+            explanation: e.explanation ?? e.context?.explanation ?? null
           }))
         }
       };

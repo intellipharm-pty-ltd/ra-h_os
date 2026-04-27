@@ -21,10 +21,7 @@ function getEdges(filters = {}) {
 
   const rows = query(sql, params);
 
-  return rows.map(row => ({
-    ...row,
-    context: parseContext(row.context)
-  }));
+  return rows.map(formatEdgeRow);
 }
 
 /**
@@ -34,11 +31,7 @@ function getEdgeById(id) {
   const rows = query('SELECT * FROM edges WHERE id = ?', [id]);
   if (rows.length === 0) return null;
 
-  const row = rows[0];
-  return {
-    ...row,
-    context: parseContext(row.context)
-  };
+  return formatEdgeRow(rows[0]);
 }
 
 /**
@@ -59,19 +52,21 @@ function createEdge(edgeData) {
     throw new Error('Edge explanation is required');
   }
 
+  const cleanExplanation = explanation.trim();
+
   // Simple context without AI inference
   // The main app can re-infer types when it loads
   const context = {
     type: 'related_to',
     confidence: 0.5,
     inferred_at: now,
-    explanation: explanation.trim(),
+    explanation: cleanExplanation,
     created_via: 'mcp'
   };
 
   const stmt = db.prepare(`
-    INSERT INTO edges (from_node_id, to_node_id, context, source, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO edges (from_node_id, to_node_id, context, source, created_at, explanation)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const result = runWithBusyRetry(() => stmt.run(
@@ -79,7 +74,8 @@ function createEdge(edgeData) {
       to_node_id,
       JSON.stringify(context),
       source,
-      now
+      now,
+      cleanExplanation
     ),
     'createEdge'
   );
@@ -100,25 +96,36 @@ function updateEdge(id, updates) {
     throw new Error(`Edge with ID ${id} not found. Use rah_query_edges to find edges by node ID.`);
   }
 
-  // If explanation changed, update context
-  if (explanation && explanation.trim()) {
+  const cleanExplanation = typeof explanation === 'string' ? explanation.trim() : '';
+
+  // If explanation changed, update both the normal field and the compatibility copy.
+  if (cleanExplanation) {
     const now = new Date().toISOString();
     const newContext = {
       ...existing.context,
-      explanation: explanation.trim(),
+      explanation: cleanExplanation,
       inferred_at: now,
       created_via: 'mcp'
     };
 
-    const stmt = db.prepare('UPDATE edges SET context = ? WHERE id = ?');
-    runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), id), 'updateEdge');
+    const stmt = db.prepare('UPDATE edges SET context = ?, explanation = ? WHERE id = ?');
+    runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), cleanExplanation, id), 'updateEdge');
   } else if (contextUpdates) {
+    const contextExplanation = typeof contextUpdates.explanation === 'string'
+      ? contextUpdates.explanation.trim()
+      : '';
     const newContext = {
       ...existing.context,
-      ...contextUpdates
+      ...contextUpdates,
+      ...(contextExplanation ? { explanation: contextExplanation } : {})
     };
-    const stmt = db.prepare('UPDATE edges SET context = ? WHERE id = ?');
-    runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), id), 'updateEdge');
+    if (contextExplanation) {
+      const stmt = db.prepare('UPDATE edges SET context = ?, explanation = ? WHERE id = ?');
+      runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), contextExplanation, id), 'updateEdge');
+    } else {
+      const stmt = db.prepare('UPDATE edges SET context = ? WHERE id = ?');
+      runWithBusyRetry(() => stmt.run(JSON.stringify(newContext), id), 'updateEdge');
+    }
   }
 
   return getEdgeById(id);
@@ -202,6 +209,15 @@ function getNodeConnections(nodeId) {
 function getEdgeCount() {
   const rows = query('SELECT COUNT(*) as count FROM edges');
   return Number(rows[0].count);
+}
+
+function formatEdgeRow(row) {
+  const context = parseContext(row.context);
+  return {
+    ...row,
+    context,
+    explanation: row.explanation || context?.explanation || null
+  };
 }
 
 /**
