@@ -19,9 +19,17 @@ Supported core path:
 - local SQLite DB
 - standard standalone MCP server
 - documented repo install flow
-- hosted model APIs if you choose them
+- OpenAI model APIs by default, or the documented OpenAI-compatible local endpoint profile
 
 This is the path the core docs and troubleshooting are written for.
+
+Supported local model profile:
+- RA-H calls a local OpenAI-compatible HTTP endpoint
+- the local runtime can be Ollama or llama.cpp after you start it yourself
+- the initial local model pair is Qwen3 4B plus Qwen3 Embedding 0.6B
+- embedding dimensions are 1024 unless a tested runtime proves a different supported dimension is needed
+
+Start with [Local Models](../LOCAL-MODELS.md).
 
 ## 3. Where Local-First Starts Getting Experimental
 
@@ -34,12 +42,13 @@ Local-first gets more experimental when you change:
 
 That does not make those setups bad. It just changes the support boundary.
 
-## 4. Community Pattern: Local Models + RA-H MCP
+## 4. Supported Local Model Profile + RA-H MCP
 
-Reasonable community pattern:
+Supported app utility/embedding pattern:
 - keep RA-H OS local
 - keep SQLite local
-- connect a local-model-capable client to RA-H through MCP
+- run a local OpenAI-compatible model server for app utility LLM calls and embeddings
+- connect a local-model-capable external client to RA-H through MCP if you want local agent runtime too
 
 Honest caveat:
 - tool-calling quality depends heavily on the model/runtime
@@ -63,16 +72,19 @@ References:
 - https://docs.anythingllm.com/mcp-compatibility/overview
 - https://docs.anythingllm.com/agent/intelligent-tool-selection
 
-## 6. Community Pattern: Qdrant Add-On For Vector-Heavy Or `sqlite-vec`-Hostile Environments
+## 6. Qdrant Sidecar For `sqlite-vec`-Hostile Environments
 
-Qdrant is a plausible local or self-hosted vector backend when:
-- `sqlite-vec` is weak on the target platform
-- storage/runtime constraints make the default vector path awkward
-- you are intentionally running a more custom environment
+Qdrant is a supported optional vector sidecar when:
+- `sqlite-vec` is unavailable or unreliable on the target platform
+- Alpine/musl, Windows ARM64, or uncertain ARM64 environments make native extensions awkward
+- you want Qdrant's vector index while keeping SQLite as the source-of-truth database
 
 Important boundary:
-- this is not a bundled official RA-H core dependency
-- the Nathan Maine repo is a community add-on example, not the default install story
+- Qdrant is not required for local embeddings
+- Qdrant does not replace SQLite as the app database
+- the Nathan Maine repo is a community reference, not the current implementation contract
+
+Start with [Qdrant Deployment](../QDRANT-DEPLOYMENT.md).
 
 References:
 - https://qdrant.tech/documentation/quickstart/
@@ -92,11 +104,15 @@ Supported core path:
 - repo install flow
 - SQLite
 - documented standalone MCP setup
+- OpenAI default AI profile
+- documented OpenAI-compatible local endpoint profile
+- sqlite-vec default vector backend
+- Qdrant fallback backend for sqlite-vec-hostile environments
 
 Reasonable community pattern:
-- alternate local-model or alternate local chat surface that still respects the MCP contract
+- alternate local chat surface that still respects the MCP contract
 
 Experimental / user-owned:
-- custom vector backend swaps
+- arbitrary custom model/provider choices outside the tested local profile
 - unsupported runtime targets
 - heavily modified inference stacks

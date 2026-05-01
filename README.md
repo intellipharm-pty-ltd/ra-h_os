@@ -13,7 +13,7 @@
 
 [![Watch the setup walkthrough](https://img.youtube.com/vi/YyUCGigZIZE/hqdefault.jpg)](https://youtu.be/YyUCGigZIZE?si=USYgvmwtdGpgGdwu)
 
-> **Cross-platform local runtime:** macOS works out of the box. Windows and Linux are now being hardened for the core local/web app flow, but semantic/vector search still depends on either sqlite-vec for your platform or a later Qdrant setup.
+> **Cross-platform local runtime:** macOS works out of the box. OpenAI is the default AI path. A supported local model profile is available through OpenAI-compatible local endpoints, and Qdrant is available as a vector sidecar when sqlite-vec is unreliable on your platform.
 
 **Docs start here:** [docs/README.md](./docs/README.md)
 
@@ -34,6 +34,7 @@ Current contract:
 - direct node lookup first for specific-node intent
 - `getContext` for orientation and `retrieveQueryContext` for broader current-turn grounding
 - standalone MCP writes node data, but the app owns chunking and embeddings: `nodes.source` becomes readable `chunks`, node-level vectors in `vec_nodes`, and passage vectors in `vec_chunks`
+- local model support uses external OpenAI-compatible model servers; RA-H does not bundle model weights
 
 ---
 
@@ -41,7 +42,7 @@ Current contract:
 
 - **Node.js 20.18.1+** — [nodejs.org](https://nodejs.org/)
 - **macOS** — Works out of the box
-- **Windows/Linux** — Core app flow is being validated; vector search still requires sqlite-vec for your platform (see below)
+- **Windows/Linux** — Core app flow is being validated; vector search requires sqlite-vec for your platform or Qdrant as the sidecar backend
 
 ---
 
@@ -124,6 +125,8 @@ Full install details:
 - [docs/README.md](./docs/README.md)
 - [docs/8_mcp.md](./docs/8_mcp.md)
 - [docs/10_full-local.md](./docs/10_full-local.md)
+- [LOCAL-MODELS.md](./LOCAL-MODELS.md)
+- [QDRANT-DEPLOYMENT.md](./QDRANT-DEPLOYMENT.md)
 
 ---
 
@@ -141,6 +144,64 @@ With a key, you get:
 **Setup:** The app will prompt you on first launch, or go to Settings → API Keys.
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+---
+
+## Local Model Profile
+
+OpenAI remains the default supported path. If you want local utility LLM calls and local embeddings, run a local OpenAI-compatible model server and point RA-H at it.
+
+Supported local contract:
+
+```bash
+LLM_PROFILE=openai-compatible
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_MODEL=qwen3:4b
+
+EMBEDDING_PROFILE=openai-compatible
+EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
+EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=1024
+```
+
+Runtime guides:
+
+- [Ollama local profile](./OLLAMA-LOCAL-PROFILE.md)
+- [llama.cpp local profile](./LLAMA-CPP-LOCAL-PROFILE.md)
+
+Validate local AI and vector configuration:
+
+```bash
+npm run doctor:local-ai
+```
+
+If you change embedding provider, model, dimensions, or vector backend after data exists:
+
+```bash
+npm run rebuild:embeddings
+```
+
+Custom model/provider overrides are advanced and not a broad support guarantee. They may work, but the tested product surface is OpenAI plus the narrow local Qwen profile.
+
+---
+
+## Vector Backends
+
+Default:
+
+```bash
+VECTOR_BACKEND=sqlite-vec
+```
+
+Use Qdrant when sqlite-vec is unavailable or unreliable:
+
+```bash
+docker compose up -d qdrant
+VECTOR_BACKEND=qdrant
+QDRANT_URL=http://localhost:6333
+```
+
+SQLite remains the source-of-truth database. Qdrant stores only derived vector indexes.
 
 ---
 

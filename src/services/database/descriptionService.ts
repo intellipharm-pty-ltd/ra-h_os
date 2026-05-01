@@ -1,6 +1,4 @@
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { hasPreferredOpenAiKey, getPreferredOpenAiKey } from '../storage/openaiKeyServer';
+import { generateUtilityText } from '@/services/llm/provider';
 import type { CanonicalNodeMetadata } from '@/types/database';
 
 export interface DescriptionInput {
@@ -23,25 +21,19 @@ export interface DescriptionInput {
  * The result must cover what the artifact is, why it is in the graph, and workflow status.
  */
 export async function generateDescription(input: DescriptionInput): Promise<string> {
-  if (!hasPreferredOpenAiKey()) {
-    console.log(`[DescriptionService] No valid OpenAI key, using fallback for: "${input.title}"`);
-    return `${input.title}. Added via Quick Add with no further context yet, so the reason it belongs in the graph is not fully inferred. It has not been reviewed yet.`.slice(0, 500);
-  }
-
   try {
     const prompt = buildDescriptionPrompt(input);
 
     console.log(`[DescriptionService] Generating description for: "${input.title}"`);
 
-    const provider = createOpenAI({ apiKey: getPreferredOpenAiKey() });
-    const response = await generateText({
-      model: provider('gpt-4o-mini'),
+    const text = await generateUtilityText({
       prompt,
       maxOutputTokens: 100,
       temperature: 0.3,
+      task: 'description',
     });
 
-    const description = sanitizeDescription(response.text, input);
+    const description = sanitizeDescription(text, input);
 
     console.log(`[DescriptionService] Generated: "${description}"`);
 

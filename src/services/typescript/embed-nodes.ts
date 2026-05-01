@@ -3,16 +3,15 @@
  * Embeds node metadata (title, source, context, AI analysis) into nodes.embedding field
  */
 
-import OpenAI from 'openai';
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { getPreferredOpenAiKey } from '@/services/storage/openaiKeyServer';
 import {
   createDatabaseConnection,
   serializeFloat32Vector,
   formatEmbeddingText,
   batchProcess
 } from './sqlite-vec';
+import { createEmbeddingProvider } from '@/services/embedding/provider';
+import { generateUtilityText } from '@/services/llm/provider';
+import { getVectorBackend } from '@/services/vectorBackend/factory';
 
 interface NodeRecord {
   id: number;
@@ -31,20 +30,11 @@ interface EmbedNodeOptions {
 }
 
 export class NodeEmbedder {
-  private openaiClient: OpenAI;
-  private openaiProvider: ReturnType<typeof createOpenAI>;
   private db: ReturnType<typeof createDatabaseConnection>;
   private processedCount: number = 0;
   private failedCount: number = 0;
 
   constructor() {
-    const apiKey = getPreferredOpenAiKey();
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is not set');
-    }
-
-    this.openaiClient = new OpenAI({ apiKey });
-    this.openaiProvider = createOpenAI({ apiKey });
     this.db = createDatabaseConnection();
   }
 
@@ -57,14 +47,14 @@ export class NodeEmbedder {
 Title: ${node.title}
 Source: ${node.source || 'No source'}
 
-Focus on the main concepts, key relationships, and practical implications.`;
+    Focus on the main concepts, key relationships, and practical implications.`;
 
     try {
-      const { text } = await generateText({
-        model: this.openaiProvider('gpt-4o-mini'),
+      const text = await generateUtilityText({
         prompt,
         maxOutputTokens: 150,
         temperature: 0.3,
+        task: 'embedding_prep_analysis',
       });
 
       return text;
@@ -75,15 +65,10 @@ Focus on the main concepts, key relationships, and practical implications.`;
   }
 
   /**
-   * Generate embedding for text using OpenAI
+   * Generate embedding for text using the active embedding profile.
    */
   private async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.openaiClient.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-    });
-
-    return response.data[0].embedding;
+    return createEmbeddingProvider().generateEmbedding(text);
   }
 
   /**
@@ -132,20 +117,10 @@ Focus on the main concepts, key relationships, and practical implications.`;
 
       // Update vec_nodes virtual table
       try {
-        // Determine correct column name for primary key (node_id vs id)
-        // Use declared PK column from your DB schema (confirmed: node_id)
-        const pkCol = 'node_id';
-
-        // Delete existing entry if any
-        const deleteStmt = this.db.prepare(`DELETE FROM vec_nodes WHERE ${pkCol} = ?`);
-        deleteStmt.run(BigInt(node.id));
-
-        // Insert new entry (use bracketed string format compatible with sqlite-vec)
-        const vectorString = `[${embedding.join(',')}]`;
-        const insertStmt = this.db.prepare(`INSERT INTO vec_nodes (${pkCol}, embedding) VALUES (?, ?)`);
-        insertStmt.run(BigInt(node.id), vectorString);
+        const vectorBackend = await getVectorBackend();
+        await vectorBackend.upsertNode(node.id, embeddingText, embedding);
       } catch (vecError) {
-        console.warn(`Could not update vec_nodes for node ${node.id}:`, vecError);
+        console.warn(`Could not update node vector backend for node ${node.id}:`, vecError);
         // Continue - main embedding is still saved
       }
 
@@ -212,7 +187,7 @@ Focus on the main concepts, key relationships, and practical implications.`;
       async (node) => {
         try {
           await this.embedNode(node, forceReEmbed);
-        } catch (error) {
+        } catch {
           // Error already logged in embedNode
         }
       },

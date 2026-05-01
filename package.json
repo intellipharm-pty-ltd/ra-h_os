@@ -20,6 +20,8 @@
     "setup": "npm install",
     "sqlite:backup": "bash scripts/database/sqlite-backup.sh",
     "sqlite:restore": "bash scripts/database/sqlite-restore.sh",
+    "doctor:local-ai": "tsx scripts/doctor-local-ai.ts",
+    "rebuild:embeddings": "tsx scripts/rebuild-embeddings.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "evals": "cross-env RAH_EVALS_LOG=1 RAH_EVALS_TIMEOUT_MS=60000 tsx tests/evals/runner.ts",

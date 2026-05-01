@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseError } from '@/types/database';
 import { getDatabasePath, getVecExtensionPath } from '@/services/database/sqlite-runtime';
+import { getEmbeddingProviderInfo } from '@/services/embedding/provider';
+import { getVectorBackendType } from '@/services/vectorBackend';
 
 export interface SQLiteConfig {
   dbPath: string;
@@ -41,6 +43,28 @@ export interface DatabaseIntegrityReport {
   };
   summary: string;
   error?: string;
+}
+
+export interface EmbeddingProfileStatus {
+  active: {
+    profile: string;
+    model: string;
+    dimensions: number;
+    vector_backend: string;
+  };
+  stored: {
+    profile: string;
+    model: string;
+    dimensions: number;
+    vector_backend: string;
+    updated_at?: string;
+  } | null;
+  vectors: {
+    nodes: number;
+    chunks: number;
+  };
+  rebuild_required: boolean;
+  reason?: string;
 }
 
 class SQLiteClient {
@@ -258,13 +282,14 @@ class SQLiteClient {
 
   public ensureVectorExtensions(): void {
     try {
+      const dimensions = getEmbeddingProviderInfo().dimensions;
       // Test for vec_nodes and vec_chunks; create them if missing
       const hasVecNodes = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get('vec_nodes');
       if (!hasVecNodes) {
         this.db.exec(`
           CREATE VIRTUAL TABLE vec_nodes USING vec0(
             node_id INTEGER PRIMARY KEY,
-            embedding FLOAT[1536]
+            embedding FLOAT[${dimensions}]
           );
         `);
         console.log('Created vec_nodes virtual table');
@@ -275,7 +300,7 @@ class SQLiteClient {
         this.db.exec(`
           CREATE VIRTUAL TABLE vec_chunks USING vec0(
             chunk_id INTEGER PRIMARY KEY,
-            embedding FLOAT[1536]
+            embedding FLOAT[${dimensions}]
           );
         `);
         console.log('Created vec_chunks virtual table');
@@ -351,6 +376,15 @@ class SQLiteClient {
         metadata TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS embedding_profile_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        profile TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dimensions INTEGER NOT NULL,
+        vector_backend TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS chats (
@@ -953,9 +987,10 @@ class SQLiteClient {
           try {
             this.db.exec(`DROP TABLE IF EXISTS ${table};`);
           } catch {}
+          const dimensions = getEmbeddingProviderInfo().dimensions;
           const ddl = table === 'vec_nodes'
-            ? `CREATE VIRTUAL TABLE vec_nodes USING vec0(node_id INTEGER PRIMARY KEY, embedding FLOAT[1536]);`
-            : `CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[1536]);`;
+            ? `CREATE VIRTUAL TABLE vec_nodes USING vec0(node_id INTEGER PRIMARY KEY, embedding FLOAT[${dimensions}]);`
+            : `CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[${dimensions}]);`;
           try {
             this.db.exec(ddl);
             console.log(`Recreated ${table} virtual table`);
@@ -1227,6 +1262,86 @@ class SQLiteClient {
       summary,
       error: firstError,
     };
+  }
+
+  public getEmbeddingProfileStatus(): EmbeddingProfileStatus {
+    const embedding = getEmbeddingProviderInfo();
+    const active = {
+      profile: embedding.profile,
+      model: embedding.model,
+      dimensions: embedding.dimensions,
+      vector_backend: getVectorBackendType(),
+    };
+
+    const stored = this.db.prepare(`
+      SELECT profile, model, dimensions, vector_backend, updated_at
+      FROM embedding_profile_state
+      WHERE id = 1
+    `).get() as EmbeddingProfileStatus['stored'] | undefined;
+
+    const nodes = this.countVectorRows('vec_nodes');
+    const chunks = this.countVectorRows('vec_chunks');
+    const hasVectors = nodes > 0 || chunks > 0;
+
+    let rebuildRequired = false;
+    let reason: string | undefined;
+
+    if (!stored && hasVectors) {
+      rebuildRequired = true;
+      reason = 'Existing vectors do not have recorded provider/model/dimension metadata.';
+    } else if (stored) {
+      const mismatches = [
+        stored.profile !== active.profile ? `profile ${stored.profile} -> ${active.profile}` : '',
+        stored.model !== active.model ? `model ${stored.model} -> ${active.model}` : '',
+        Number(stored.dimensions) !== active.dimensions ? `dimensions ${stored.dimensions} -> ${active.dimensions}` : '',
+        stored.vector_backend !== active.vector_backend ? `backend ${stored.vector_backend} -> ${active.vector_backend}` : '',
+      ].filter(Boolean);
+
+      if (mismatches.length > 0) {
+        rebuildRequired = hasVectors;
+        reason = `Embedding/vector profile changed (${mismatches.join(', ')}). Rebuild embeddings before semantic search.`;
+      }
+    }
+
+    return {
+      active,
+      stored: stored || null,
+      vectors: { nodes, chunks },
+      rebuild_required: rebuildRequired,
+      reason,
+    };
+  }
+
+  public markEmbeddingProfileCurrent(): void {
+    if (this.readOnly) return;
+    const embedding = getEmbeddingProviderInfo();
+    this.db.prepare(`
+      INSERT INTO embedding_profile_state (id, profile, model, dimensions, vector_backend, updated_at)
+      VALUES (1, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        profile = excluded.profile,
+        model = excluded.model,
+        dimensions = excluded.dimensions,
+        vector_backend = excluded.vector_backend,
+        updated_at = excluded.updated_at
+    `).run(
+      embedding.profile,
+      embedding.model,
+      embedding.dimensions,
+      getVectorBackendType(),
+      new Date().toISOString()
+    );
+  }
+
+  private countVectorRows(tableName: 'vec_nodes' | 'vec_chunks'): number {
+    try {
+      const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(tableName);
+      if (!exists) return 0;
+      const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count?: number } | undefined;
+      return Number(row?.count ?? 0);
+    } catch {
+      return 0;
+    }
   }
 
   public getIntegrityReport(forceRefresh = false): DatabaseIntegrityReport {

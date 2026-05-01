@@ -20,7 +20,17 @@ fi
 DB_DIR="$(dirname "$DB_PATH")"
 DB_NAME="$(basename "$DB_PATH")"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VEC_EXTENSION_PATH="${SQLITE_VEC_EXTENSION_PATH:-$ROOT_DIR/vendor/sqlite-extensions/vec0.dylib}"
+case "$(uname -s)" in
+  Darwin*) VEC_EXT="dylib" ;;
+  MINGW*|MSYS*|CYGWIN*) VEC_EXT="dll" ;;
+  *) VEC_EXT="so" ;;
+esac
+VEC_EXTENSION_PATH="${SQLITE_VEC_EXTENSION_PATH:-$ROOT_DIR/vendor/sqlite-extensions/vec0.$VEC_EXT}"
+EMBEDDING_DIMENSIONS="${EMBEDDING_DIMENSIONS:-1536}"
+if ! [[ "$EMBEDDING_DIMENSIONS" =~ ^[0-9]+$ ]] || [ "$EMBEDDING_DIMENSIONS" -le 0 ]; then
+  echo "Invalid EMBEDDING_DIMENSIONS: $EMBEDDING_DIMENSIONS" >&2
+  exit 1
+fi
 TS=$(date +"%Y%m%d_%H%M%S")
 RAW_BACKUP_DIR="$DB_DIR/working/fts_repair_${TS}"
 REBUILT_DB="$DB_DIR/${DB_NAME}.rebuilt.${TS}"
@@ -36,12 +46,12 @@ if [ -f "$VEC_EXTENSION_PATH" ]; then
     VEC_SQL_BODY="
 CREATE VIRTUAL TABLE vec_nodes USING vec0(
   node_id INTEGER PRIMARY KEY,
-  embedding FLOAT[1536]
+  embedding FLOAT[$EMBEDDING_DIMENSIONS]
 );
 
 CREATE VIRTUAL TABLE vec_chunks USING vec0(
   chunk_id INTEGER PRIMARY KEY,
-  embedding FLOAT[1536]
+  embedding FLOAT[$EMBEDDING_DIMENSIONS]
 );
 "
 

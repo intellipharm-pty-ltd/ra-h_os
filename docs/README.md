@@ -21,6 +21,8 @@
 | [MCP](./8_mcp.md) | Full standalone MCP install, behavior guide, and memory-file guidance |
 | [Open Source](./9_open-source.md) | Scope, support boundary, contributor reality |
 | [Full Local](./10_full-local.md) | Supported local path vs community patterns |
+| [Local Models](../LOCAL-MODELS.md) | OpenAI-compatible local endpoint profile |
+| [Qdrant](../QDRANT-DEPLOYMENT.md) | Optional vector sidecar for sqlite-vec-hostile environments |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Common issues and fixes |
 
 ## Start Here
@@ -28,7 +30,7 @@
 If you just want RA-H OS working:
 1. Use the MCP quick install below if you mainly want agent access.
 2. Use the local app quick start if you also want the browser UI.
-3. Read [Full Local](./10_full-local.md) if you want a more local-first or community setup.
+3. Read [Local Models](../LOCAL-MODELS.md) and [Full Local](./10_full-local.md) if you want a more local-first setup.
 
 ## MCP Quick Install
 

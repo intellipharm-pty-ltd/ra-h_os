@@ -554,17 +554,21 @@ function ensureCoreSchema(db) {
 function tryInitVectorTables(db, dbPath) {
   const extension = process.platform === 'darwin' ? 'dylib' : process.platform === 'win32' ? 'dll' : 'so';
   const extensionPath = process.env.SQLITE_VEC_EXTENSION_PATH || path.join(repoDir, 'vendor', 'sqlite-extensions', `vec0.${extension}`);
+  const dimensions = Number(process.env.EMBEDDING_DIMENSIONS || '1536');
+  if (!Number.isInteger(dimensions) || dimensions <= 0) {
+    throw new Error(`Invalid EMBEDDING_DIMENSIONS="${process.env.EMBEDDING_DIMENSIONS}"`);
+  }
 
   try {
     db.loadExtension(extensionPath);
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
         node_id INTEGER PRIMARY KEY,
-        embedding FLOAT[1536]
+        embedding FLOAT[${dimensions}]
       );
       CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
         chunk_id INTEGER PRIMARY KEY,
-        embedding FLOAT[1536]
+        embedding FLOAT[${dimensions}]
       );
     `);
     log(`Initialized sqlite-vec tables using ${extensionPath}`);
