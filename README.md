@@ -56,7 +56,6 @@ Every path uses a local SQLite database. The choice is only about where the two 
 |-------------|---------------|
 | The simplest setup and strongest default model quality | **Local DB + OpenAI models** |
 | No model calls leaving your computer | **Local DB + local Qwen models** |
-| A clean test that does not touch your normal graph | **Demo-safe isolated install** |
 
 What "OpenAI models" means:
 - Your database is local.
