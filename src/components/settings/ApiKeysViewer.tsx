@@ -3,11 +3,23 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
+type ActiveProfile = {
+  llmProfile: string;
+  llmModel: string | null;
+  llmBaseUrl: string | null;
+  embeddingProfile: string;
+  embeddingModel: string | null;
+  embeddingBaseUrl: string | null;
+  embeddingDimensions: string;
+};
+
 export default function ApiKeysViewer() {
   const [status, setStatus] = useState<'checking' | 'configured' | 'not-set'>('checking');
   const [keyInput, setKeyInput] = useState('');
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
   const [envPath, setEnvPath] = useState<string>('.env.local');
+  const [openAiKeyWritable, setOpenAiKeyWritable] = useState(true);
+  const [activeProfile, setActiveProfile] = useState<ActiveProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -19,6 +31,8 @@ export default function ApiKeysViewer() {
         setStatus(data.configured ? 'configured' : 'not-set');
         setMaskedKey(data.maskedKey ?? null);
         setEnvPath(data.envPath ?? '.env.local');
+        setOpenAiKeyWritable(data.openAiKeyWritable !== false);
+        setActiveProfile(data.activeProfile ?? null);
       })
       .catch(() => setStatus('not-set'));
   }, []);
@@ -44,6 +58,8 @@ export default function ApiKeysViewer() {
       setStatus('configured');
       setMaskedKey(payload.maskedKey ?? null);
       setEnvPath(payload.envPath ?? envPath);
+      setOpenAiKeyWritable(payload.openAiKeyWritable !== false);
+      setActiveProfile(payload.activeProfile ?? activeProfile);
       setKeyInput('');
       setMessage('Saved to .env.local and updated the running app.');
     } catch (err) {
@@ -71,6 +87,8 @@ export default function ApiKeysViewer() {
       setMaskedKey(null);
       setKeyInput('');
       setEnvPath(payload.envPath ?? envPath);
+      setOpenAiKeyWritable(payload.openAiKeyWritable !== false);
+      setActiveProfile(payload.activeProfile ?? activeProfile);
       setMessage('Removed from .env.local and cleared the running app key.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove API key');
@@ -81,8 +99,38 @@ export default function ApiKeysViewer() {
 
   return (
     <div style={containerStyle}>
+      {activeProfile && (
+        <div style={profileBoxStyle}>
+          <div style={featuresHeaderStyle}>
+            {openAiKeyWritable ? 'OpenAI profile active' : 'Local model profile active'}
+          </div>
+          <div style={profileGridStyle}>
+            <div>
+              <div style={profileLabelStyle}>Utility LLM</div>
+              <code style={codeInlineStyle}>{activeProfile.llmProfile}</code>
+              {activeProfile.llmModel && <span style={profileValueStyle}> {activeProfile.llmModel}</span>}
+            </div>
+            <div>
+              <div style={profileLabelStyle}>Embeddings</div>
+              <code style={codeInlineStyle}>{activeProfile.embeddingProfile}</code>
+              {activeProfile.embeddingModel && <span style={profileValueStyle}> {activeProfile.embeddingModel}</span>}
+            </div>
+            <div>
+              <div style={profileLabelStyle}>Embedding width</div>
+              <span style={profileValueStyle}>{activeProfile.embeddingDimensions}</span>
+            </div>
+          </div>
+          {!openAiKeyWritable && (
+            <p style={profileNoteStyle}>
+              This install is already configured for local models. OpenAI key entry is disabled here so the app does not drift away from the setup profile. To switch providers, edit <code style={codeInlineStyle}>{envPath}</code> and run <code style={codeInlineStyle}>npm run rebuild:embeddings</code>.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Features explanation */}
-      <div style={featuresBoxStyle}>
+      {openAiKeyWritable && (
+        <div style={featuresBoxStyle}>
         <div style={featuresHeaderStyle}>OpenAI API Key enables:</div>
         <ul style={featuresListStyle}>
           <li>Auto-generated descriptions for new nodes</li>
@@ -93,9 +141,11 @@ export default function ApiKeysViewer() {
           Without a key, you can still create and organise nodes manually.
         </div>
       </div>
+      )}
 
       {/* Status */}
-      <div style={cardStyle}>
+      {openAiKeyWritable ? (
+        <div style={cardStyle}>
         <div style={cardHeaderStyle}>
           <span style={cardTitleStyle}>OpenAI API Key</span>
           <span style={{
@@ -178,9 +228,28 @@ export default function ApiKeysViewer() {
           </p>
         </div>
       </div>
+      ) : (
+        <div style={cardStyle}>
+          <div style={cardHeaderStyle}>
+            <span style={cardTitleStyle}>OpenAI API Key</span>
+            <span style={{ fontSize: 12, color: 'var(--settings-muted)' }}>Disabled</span>
+          </div>
+          <div style={instructionsStyle}>
+            <p style={{ margin: 0 }}>
+              This workspace is using the local model profile selected during setup. The app will call the configured OpenAI-compatible local endpoints for descriptions and embeddings instead of using an OpenAI API key.
+            </p>
+            {activeProfile?.llmBaseUrl && (
+              <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--settings-muted)' }}>
+                Local endpoint: <code style={codeInlineStyle}>{activeProfile.llmBaseUrl}</code>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Get key link */}
-      <div style={helpStyle}>
+      {openAiKeyWritable && (
+        <div style={helpStyle}>
         <button
           type="button"
           onClick={() => {
@@ -194,6 +263,7 @@ export default function ApiKeysViewer() {
           Get your API key from OpenAI →
         </button>
       </div>
+      )}
     </div>
   );
 }
@@ -210,6 +280,38 @@ const featuresBoxStyle: CSSProperties = {
   borderRadius: 8,
   padding: 16,
   marginBottom: 20,
+};
+
+const profileBoxStyle: CSSProperties = {
+  background: 'var(--settings-card-bg)',
+  border: '1px solid var(--settings-border)',
+  borderRadius: 8,
+  padding: 16,
+  marginBottom: 20,
+};
+
+const profileGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gap: 12,
+};
+
+const profileLabelStyle: CSSProperties = {
+  fontSize: 11,
+  color: 'var(--settings-muted)',
+  marginBottom: 6,
+};
+
+const profileValueStyle: CSSProperties = {
+  fontSize: 12,
+  color: 'var(--settings-subtext)',
+};
+
+const profileNoteStyle: CSSProperties = {
+  margin: '12px 0 0',
+  fontSize: 12,
+  color: 'var(--settings-muted)',
+  lineHeight: 1.5,
 };
 
 const featuresHeaderStyle: CSSProperties = {

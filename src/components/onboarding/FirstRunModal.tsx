@@ -21,7 +21,7 @@ export default function FirstRunModal() {
         if (cancelled) return;
 
         const dismissed = window.localStorage.getItem(FIRST_RUN_DISMISSED_KEY) === 'true';
-        setIsOpen(!data.configured && !dismissed);
+        setIsOpen(data.openAiKeyWritable !== false && !data.configured && !dismissed);
       } catch {
         if (!cancelled) {
           const dismissed = window.localStorage.getItem(FIRST_RUN_DISMISSED_KEY) === 'true';
