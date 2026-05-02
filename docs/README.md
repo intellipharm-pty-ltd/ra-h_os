@@ -91,7 +91,17 @@ The recommended MCP setup is the CLI command above. Manual config is only for tr
 
 If you need a frozen version for release/debug work, pin it intentionally and restart the client.
 
-The selected setup profile creates the default database if it does not exist. The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source: readable `chunks`, full-text indexes, `vec_nodes`, and `vec_chunks`. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
+The selected setup profile creates the default database if it does not exist. By default, that database is in the operating system's app-data folder, not inside the cloned repo:
+
+```text
+~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
+~/.local/share/RA-H/db/rah.sqlite                  # Linux
+%APPDATA%/RA-H/db/rah.sqlite                       # Windows
+```
+
+Set `SQLITE_DB_PATH` before setup if you want a repo-local DB, demo DB, or any other separate location. If MCP should use that same non-default database, pass the same path to the MCP installer with `--db`.
+
+The standalone MCP server can write nodes without the app running, but the app owns chunking and embedding from node source: readable `chunks`, full-text indexes, `vec_nodes`, and `vec_chunks`. See [MCP docs](./8_mcp.md) for the full install, verify, memory-file, and troubleshooting path.
 
 ## Questions?
 

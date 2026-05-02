@@ -277,21 +277,33 @@ Qdrant does not change your model choice. OpenAI vs local Qwen is controlled by 
 
 ## Where Your Data Lives
 
+By default, setup creates and seeds the SQLite database in your operating system's app-data folder, not inside the cloned repo:
+
 ```
 ~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
 ~/.local/share/RA-H/db/rah.sqlite                  # Linux
 %APPDATA%/RA-H/db/rah.sqlite                       # Windows
 ```
 
+This default applies to both app profiles:
+- `npm run setup:local -- --profile openai`
+- `npm run setup:local -- --profile qwen-local`
+
 This is a standard SQLite file. You can:
 - Back it up by copying the file
 - Query it directly with `sqlite3` or any SQLite tool
 - Move it between machines
 
-Override the location only when you intentionally want a separate database:
+You can put the database somewhere else by setting `SQLITE_DB_PATH` before setup. Use this when you want a repo-local DB, a demo DB, or any other separate database:
 
 ```bash
 SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local -- --profile qwen-local
+```
+
+To put it directly inside your cloned repo, use a gitignored local folder:
+
+```bash
+SQLITE_DB_PATH="$PWD/.ra-h/db/rah.sqlite" npm run setup:local -- --profile qwen-local
 ```
 
 If MCP should use that same non-default database, pass the same path to the MCP installer:
