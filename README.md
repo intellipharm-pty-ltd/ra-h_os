@@ -25,7 +25,7 @@
 2. **Provides a UI** — Browse, search, and organize your nodes at `localhost:3000`
 3. **Exposes an MCP server** — Claude Code and other MCP clients can query and add to your knowledge base
 
-Your database stays on your machine. With the `openai` profile, model requests go to OpenAI after you add an API key. With the `qwen-local` profile, model requests go to your local Ollama/OpenAI-compatible endpoint.
+Your database stays on your machine. With the `openai` profile, model requests go to OpenAI after you add an API key. With `qwen-local` or `llama-cpp`, model requests go to your local OpenAI-compatible endpoints.
 
 Current contract:
 - no runtime `dimensions`
@@ -54,7 +54,8 @@ Current contract:
 |-------------|---------------|
 | Your AI coding agent can read/write your RA-H graph | **Option A: MCP-only quick install** |
 | A browser UI at `localhost:3000` with OpenAI models | **Option B1: Full local app with OpenAI** |
-| A browser UI at `localhost:3000` with local Qwen models | **Option B2: Full local app with local Qwen** |
+| A browser UI at `localhost:3000` with local Qwen models through Ollama | **Option B2: Full local app with local Qwen/Ollama** |
+| A browser UI at `localhost:3000` with local Qwen models through llama.cpp | **Option B3: Full local app with local Qwen/llama.cpp** |
 | A clean demo that does not touch your real graph | **Demo-safe isolated install** |
 
 ### Option A: MCP-only quick install
@@ -120,7 +121,7 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). Add your OpenAI API key when the app prompts you, or later in Settings -> API Keys.
 
-### Option B2: Full local app with local Qwen
+### Option B2: Full local app with local Qwen/Ollama
 
 Use this if you want the browser UI at `localhost:3000` and want RA-H to call local OpenAI-compatible Ollama endpoints instead of OpenAI.
 
@@ -135,6 +136,34 @@ npm install
 ollama pull qwen3:4b
 ollama pull qwen3-embedding:0.6b
 npm run setup:local -- --profile qwen-local
+npm run dev
+```
+
+Open [localhost:3000](http://localhost:3000). Settings -> API Keys will show the active local model profile and disable OpenAI key entry.
+
+### Option B3: Full local app with local Qwen/llama.cpp
+
+Use this if you want local model calls but prefer managing GGUF files and llama.cpp server processes yourself.
+
+Prerequisites:
+- llama.cpp is installed.
+- You have compatible Qwen chat and embedding GGUF files.
+- You start separate OpenAI-compatible servers before running RA-H setup.
+
+Example llama.cpp servers:
+
+```bash
+llama-server -m /models/qwen3-4b.gguf --port 8080
+llama-server -m /models/qwen3-embedding-0.6b.gguf --embedding --port 8081
+```
+
+Then set up RA-H:
+
+```bash
+git clone https://github.com/bradwmorris/ra-h_os.git
+cd ra-h_os
+npm install
+npm run setup:local -- --profile llama-cpp
 npm run dev
 ```
 
@@ -161,6 +190,7 @@ This is not cosmetic. The readable `nodes` and `chunks` tables are normal SQLite
 |---------------|---------------|-----------------|--------------|
 | `openai` | `gpt-4o-mini` | `text-embedding-3-small` | `1536` |
 | `qwen-local` | `qwen3:4b` through Ollama | `qwen3-embedding:0.6b` through Ollama | `1024` |
+| `llama-cpp` | `qwen3-4b` through llama.cpp | `qwen3-embedding-0.6b` through llama.cpp | `1024` |
 
 Setup requires one of these commands on a fresh install.
 
@@ -182,7 +212,15 @@ npm run setup:local -- --profile qwen-local
 npm run dev
 ```
 
-If you run setup without a profile and `.env.local` does not already select one, setup stops before creating vector tables and prints the two supported commands.
+Local Qwen with llama.cpp:
+
+```bash
+npm install
+npm run setup:local -- --profile llama-cpp
+npm run dev
+```
+
+If you run setup without a profile and `.env.local` does not already select one, setup stops before creating vector tables and prints the supported commands.
 
 If you change embedding provider, model, dimensions, or vector backend after data exists, your source data stays intact but derived embeddings must be rebuilt:
 
@@ -209,17 +247,17 @@ With a key, you get:
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
-If you selected `qwen-local`, do not add an OpenAI key in the UI. Settings -> API Keys shows the active local model profile and disables OpenAI key entry so the install stays aligned with the setup profile.
+If you selected `qwen-local` or `llama-cpp`, do not add an OpenAI key in the UI. Settings -> API Keys shows the active local model profile and disables OpenAI key entry so the install stays aligned with the setup profile.
 
 ---
 
 ## Local Model Profile
 
-Use the `qwen-local` setup profile if you want local utility LLM calls and local embeddings.
+Use `qwen-local` or `llama-cpp` if you want local utility LLM calls and local embeddings.
 
-RA-H does not bundle model weights. It calls a local OpenAI-compatible HTTP endpoint. The tested local path is Ollama with Qwen.
+RA-H does not bundle model weights. It calls local OpenAI-compatible HTTP endpoints. The tested local paths are Ollama with Qwen and llama.cpp with compatible Qwen GGUF files.
 
-Supported local contract:
+Supported Ollama contract:
 
 ```bash
 LLM_PROFILE=openai-compatible
@@ -229,6 +267,19 @@ LLM_MODEL=qwen3:4b
 EMBEDDING_PROFILE=openai-compatible
 EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
 EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=1024
+```
+
+Supported llama.cpp contract:
+
+```bash
+LLM_PROFILE=openai-compatible
+LLM_BASE_URL=http://127.0.0.1:8080/v1
+LLM_MODEL=qwen3-4b
+
+EMBEDDING_PROFILE=openai-compatible
+EMBEDDING_BASE_URL=http://127.0.0.1:8081/v1
+EMBEDDING_MODEL=qwen3-embedding-0.6b
 EMBEDDING_DIMENSIONS=1024
 ```
 
@@ -249,7 +300,7 @@ If you change embedding provider, model, dimensions, or vector backend after dat
 npm run rebuild:embeddings
 ```
 
-Custom model/provider overrides are advanced and not a broad support guarantee. They may work, but the tested product surface is OpenAI plus the narrow local Qwen profile.
+Custom model/provider overrides are advanced and not a broad support guarantee. They may work, but the tested product surface is OpenAI plus the narrow local Qwen profiles.
 
 ---
 
@@ -285,9 +336,10 @@ By default, setup creates and seeds the SQLite database in your operating system
 %APPDATA%/RA-H/db/rah.sqlite                       # Windows
 ```
 
-This default applies to both app profiles:
+This default applies to all app profiles:
 - `npm run setup:local -- --profile openai`
 - `npm run setup:local -- --profile qwen-local`
+- `npm run setup:local -- --profile llama-cpp`
 
 This is a standard SQLite file. You can:
 - Back it up by copying the file
@@ -311,6 +363,83 @@ If MCP should use that same non-default database, pass the same path to the MCP 
 ```bash
 npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
 ```
+
+---
+
+## Point MCP At The Right Database
+
+The MCP server reads and writes whichever SQLite file is set as `RAH_DB_PATH`.
+
+Use the same database path for the app and for MCP. If these paths do not match, the browser UI and your coding agent will be looking at different graphs.
+
+### Default Database
+
+If you used the default app-data database, install MCP without `--db`:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
+```
+
+That points MCP at the default platform path:
+
+```text
+~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
+~/.local/share/RA-H/db/rah.sqlite                  # Linux
+%APPDATA%/RA-H/db/rah.sqlite                       # Windows
+```
+
+### Custom Or Repo-Local Database
+
+If you set `SQLITE_DB_PATH` during app setup, pass that exact same path to the MCP installer with `--db`.
+
+Example repo-local app setup:
+
+```bash
+SQLITE_DB_PATH="$PWD/.ra-h/db/rah.sqlite" npm run setup:local -- --profile qwen-local
+```
+
+Matching MCP setup:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code,codex \
+  --yes \
+  --db "$PWD/.ra-h/db/rah.sqlite"
+```
+
+### Project-Scoped Claude Code MCP
+
+If you want Claude Code to use a repo-local database only inside this repo, create a project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ra-h": {
+      "command": "npx",
+      "args": ["-y", "ra-h-mcp-server@latest"],
+      "env": {
+        "RAH_DB_PATH": "/absolute/path/to/ra-h_os/.ra-h/db/rah.sqlite"
+      }
+    }
+  }
+}
+```
+
+Use the server name `ra-h` in project config if you want the project database to override a user-level `ra-h` server while Claude is opened in that repo.
+
+Keep `.mcp.json` out of git if it contains a machine-specific path.
+
+### Verify The Active MCP Database
+
+After configuring MCP, fully restart the client.
+
+Then run:
+
+```bash
+npx -y ra-h-mcp-server@latest doctor --db "/path/to/rah.sqlite"
+```
+
+Inside your agent, ask it to use the RA-H MCP server and report the database path it is using before it creates or updates nodes.
 
 ---
 
@@ -340,6 +469,8 @@ The recommended path is the CLI installer:
 ```bash
 npx -y ra-h-mcp-server@latest setup --client claude-code --yes
 ```
+
+If your app uses a custom database path, include `--db` with that exact path. See [Point MCP At The Right Database](#point-mcp-at-the-right-database).
 
 Manual config is still useful for troubleshooting or unsupported clients. Add this to your MCP client config and restart the client fully:
 
@@ -457,6 +588,7 @@ See [docs/2_schema.md](./docs/2_schema.md) and [docs/8_mcp.md](./docs/8_mcp.md) 
 |---------|--------------|
 | `npm run setup:local -- --profile openai` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed OpenAI-width vector tables |
 | `npm run setup:local -- --profile qwen-local` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed Qwen-width vector tables |
+| `npm run setup:local -- --profile llama-cpp` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed Qwen-width vector tables for llama.cpp endpoints |
 | `npm run setup:local` | Only valid if `.env.local` already selects an embedding profile; otherwise it stops before DB/vector setup |
 | `npm run bootstrap:local` | Lower-level helper used by `setup:local`; most users should not run this directly |
 | `npm run rebuild:embeddings` | Recreate derived embeddings after changing embedding provider, model, dimensions, or vector backend |

@@ -8,7 +8,7 @@ import Database from 'better-sqlite3';
 const repoDir = process.cwd();
 const envTemplate = path.join(repoDir, '.env.example');
 const targetEnv = path.join(repoDir, '.env.local');
-const supportedProfiles = new Set(['openai', 'qwen-local']);
+const supportedProfiles = new Set(['openai', 'qwen-local', 'llama-cpp']);
 
 function log(message) {
   console.log(`[bootstrap-local] ${message}`);
@@ -132,13 +132,16 @@ function normalizeSetupProfile(rawProfile) {
   if (rawProfile === 'qwen' || rawProfile === 'local' || rawProfile === 'ollama') {
     return 'qwen-local';
   }
+  if (rawProfile === 'llama' || rawProfile === 'llamacpp' || rawProfile === 'cpp') {
+    return 'llama-cpp';
+  }
   return rawProfile;
 }
 
 function applySetupProfile(profile) {
   if (!profile) return;
   if (!supportedProfiles.has(profile)) {
-    throw new Error(`Unsupported setup profile "${profile}". Use "openai" or "qwen-local".`);
+    throw new Error(`Unsupported setup profile "${profile}". Use "openai", "qwen-local", or "llama-cpp".`);
   }
 
   if (profile === 'openai') {
@@ -150,12 +153,24 @@ function applySetupProfile(profile) {
     return;
   }
 
+  if (profile === 'qwen-local') {
+    ensureEnvValue('LLM_PROFILE', 'openai-compatible');
+    ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:11434/v1');
+    ensureEnvValue('LLM_MODEL', 'qwen3:4b');
+    ensureEnvValue('EMBEDDING_PROFILE', 'openai-compatible');
+    ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:11434/v1');
+    ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding:0.6b');
+    ensureEnvValue('EMBEDDING_DIMENSIONS', '1024');
+    ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
+    return;
+  }
+
   ensureEnvValue('LLM_PROFILE', 'openai-compatible');
-  ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:11434/v1');
-  ensureEnvValue('LLM_MODEL', 'qwen3:4b');
+  ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:8080/v1');
+  ensureEnvValue('LLM_MODEL', 'qwen3-4b');
   ensureEnvValue('EMBEDDING_PROFILE', 'openai-compatible');
-  ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:11434/v1');
-  ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding:0.6b');
+  ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:8081/v1');
+  ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding-0.6b');
   ensureEnvValue('EMBEDDING_DIMENSIONS', '1024');
   ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
 }
@@ -175,6 +190,7 @@ function assertEmbeddingProfileSelected(env) {
     'Run one of:',
     '  npm run setup:local -- --profile openai',
     '  npm run setup:local -- --profile qwen-local',
+    '  npm run setup:local -- --profile llama-cpp',
     '',
     'If you change embedding provider later, run:',
     '  npm run rebuild:embeddings',

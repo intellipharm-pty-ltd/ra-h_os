@@ -12,6 +12,12 @@ llama-server -m /models/qwen3-embedding-0.6b.gguf --embedding --port 8081
 Configure RA-H:
 
 ```bash
+npm run setup:local -- --profile llama-cpp
+```
+
+That writes this profile to `.env.local`:
+
+```bash
 LLM_PROFILE=openai-compatible
 LLM_BASE_URL=http://127.0.0.1:8080/v1
 LLM_MODEL=qwen3-4b
