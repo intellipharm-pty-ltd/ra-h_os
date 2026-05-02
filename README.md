@@ -130,6 +130,43 @@ Full install details:
 
 ---
 
+## First-Time Setup
+
+Pick the embedding profile before the database is created. This matters because
+the readable `nodes` and `chunks` tables are normal SQLite tables, but the
+derived sqlite-vec vector tables are created with a fixed embedding width.
+
+OpenAI:
+
+```bash
+npm install
+npm run setup:local -- --profile openai
+npm run dev
+```
+
+Local Qwen with Ollama:
+
+```bash
+npm install
+ollama pull qwen3:4b
+ollama pull qwen3-embedding:0.6b
+npm run setup:local -- --profile qwen-local
+npm run dev
+```
+
+If you run setup without a profile and `.env.local` does not already select one,
+setup stops before creating vector tables and prints the two supported commands.
+
+If you change embedding provider, model, dimensions, or vector backend after
+data exists, your source data stays intact but derived embeddings must be
+rebuilt:
+
+```bash
+npm run rebuild:embeddings
+```
+
+---
+
 ## OpenAI API Key
 
 **Optional but recommended.** Without a key, you can still create and organize nodes manually.
@@ -149,7 +186,7 @@ Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys
 
 ## Local Model Profile
 
-OpenAI remains the default supported path. If you want local utility LLM calls and local embeddings, run a local OpenAI-compatible model server and point RA-H at it.
+OpenAI remains the default supported cloud path. If you want local utility LLM calls and local embeddings, run a local OpenAI-compatible model server and point RA-H at it.
 
 Supported local contract:
 
@@ -228,7 +265,7 @@ If you need a clean demo without touching your normal RA-H database:
 git clone https://github.com/bradwmorris/ra-h_os.git ~/Desktop/ra-h_os-demo
 cd ~/Desktop/ra-h_os-demo
 npm install
-SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local
+SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local -- --profile qwen-local
 npm run dev
 
 npx -y ra-h-mcp-server@latest setup \

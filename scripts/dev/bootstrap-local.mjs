@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 const repoDir = process.cwd();
 const envTemplate = path.join(repoDir, '.env.example');
 const targetEnv = path.join(repoDir, '.env.local');
+const supportedProfiles = new Set(['openai', 'qwen-local']);
 
 function log(message) {
   console.log(`[bootstrap-local] ${message}`);
@@ -89,10 +90,12 @@ function ensureEnvValue(key, value) {
   const nextLines = lines.map((line) => {
     const trimmed = line.trim();
     if (trimmed.startsWith(`${key}=`)) {
+      if (found) return line;
       found = true;
       return `${key}=${value}`;
     }
     if (trimmed.startsWith(`# ${key}=`) || trimmed.startsWith(`#${key}=`)) {
+      if (found) return line;
       found = true;
       return `${key}=${value}`;
     }
@@ -108,6 +111,74 @@ function ensureEnvValue(key, value) {
 
   fs.writeFileSync(targetEnv, `${nextLines.join('\n').replace(/\n+$/, '')}\n`);
   log(`Set ${key} in .env.local`);
+}
+
+function parseArgs(argv) {
+  const args = { profile: undefined };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--profile') {
+      args.profile = argv[index + 1];
+      index += 1;
+    } else if (arg.startsWith('--profile=')) {
+      args.profile = arg.slice('--profile='.length);
+    }
+  }
+  return args;
+}
+
+function normalizeSetupProfile(rawProfile) {
+  if (!rawProfile) return undefined;
+  if (rawProfile === 'qwen' || rawProfile === 'local' || rawProfile === 'ollama') {
+    return 'qwen-local';
+  }
+  return rawProfile;
+}
+
+function applySetupProfile(profile) {
+  if (!profile) return;
+  if (!supportedProfiles.has(profile)) {
+    throw new Error(`Unsupported setup profile "${profile}". Use "openai" or "qwen-local".`);
+  }
+
+  if (profile === 'openai') {
+    ensureEnvValue('LLM_PROFILE', 'openai');
+    ensureEnvValue('EMBEDDING_PROFILE', 'openai');
+    ensureEnvValue('EMBEDDING_MODEL', 'text-embedding-3-small');
+    ensureEnvValue('EMBEDDING_DIMENSIONS', '1536');
+    ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
+    return;
+  }
+
+  ensureEnvValue('LLM_PROFILE', 'openai-compatible');
+  ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:11434/v1');
+  ensureEnvValue('LLM_MODEL', 'qwen3:4b');
+  ensureEnvValue('EMBEDDING_PROFILE', 'openai-compatible');
+  ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:11434/v1');
+  ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding:0.6b');
+  ensureEnvValue('EMBEDDING_DIMENSIONS', '1024');
+  ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
+}
+
+function assertEmbeddingProfileSelected(env) {
+  if (env.EMBEDDING_PROFILE) {
+    return;
+  }
+
+  throw new Error([
+    'Choose an embedding profile before database setup.',
+    '',
+    'The selected embedding model controls sqlite-vec table dimensions:',
+    '  OpenAI text-embedding-3-small -> 1536',
+    '  Local Qwen qwen3-embedding:0.6b -> 1024',
+    '',
+    'Run one of:',
+    '  npm run setup:local -- --profile openai',
+    '  npm run setup:local -- --profile qwen-local',
+    '',
+    'If you change embedding provider later, run:',
+    '  npm run rebuild:embeddings',
+  ].join('\n'));
 }
 
 function ensureCoreSchema(db) {
@@ -590,9 +661,14 @@ function main() {
     throw new Error(`Node.js 20+ required (found ${process.version})`);
   }
 
+  const args = parseArgs(process.argv.slice(2));
+  const setupProfile = normalizeSetupProfile(args.profile);
+
   ensureEnvFile();
+  applySetupProfile(setupProfile);
 
   const env = { ...parseEnvFile(targetEnv), ...process.env };
+  assertEmbeddingProfileSelected(env);
   if (process.env.SQLITE_DB_PATH) {
     ensureEnvValue('SQLITE_DB_PATH', process.env.SQLITE_DB_PATH);
     env.SQLITE_DB_PATH = process.env.SQLITE_DB_PATH;
