@@ -28,22 +28,12 @@
 ## Start Here
 
 If you just want RA-H OS working:
-1. Use the MCP quick install below if you mainly want agent access.
-2. Use the OpenAI local app quick start if you want the browser UI with OpenAI models.
-3. Use the local Qwen/Ollama quick start if you want the browser UI with local Ollama models.
-4. Use the local Qwen/llama.cpp quick start if you want to manage GGUF files and llama.cpp servers yourself.
+1. Use the OpenAI local app quick start if you want the simplest setup.
+2. Use the local Qwen/Ollama quick start if you want local models with the least runtime work.
+3. Use the local Qwen/llama.cpp quick start if you want to manage GGUF files and llama.cpp servers yourself.
+4. Connect MCP after the app database exists if you want Claude Code, Codex, Cursor, or another agent to read/write the same graph.
 
-## MCP Quick Install
-
-```bash
-npx -y ra-h-mcp-server@latest setup --client claude-code --yes
-```
-
-Run `doctor` after setup or whenever MCP feels stale:
-
-```bash
-npx -y ra-h-mcp-server@latest doctor
-```
+Every app path uses a local SQLite database. OpenAI setup keeps the database local but sends utility-model and embedding requests to OpenAI. Local Qwen setup keeps the database local and runs both model roles on your device through Ollama or llama.cpp, so those model calls do not go to a hosted model API.
 
 ## Local App Quick Start: OpenAI
 
@@ -100,7 +90,24 @@ Fresh app setup must choose `--profile openai`, `--profile qwen-local`, or `--pr
 
 ## MCP Integration
 
-The recommended MCP setup is the CLI command above. Manual config is only for troubleshooting or unsupported clients:
+Configure MCP after the app database exists. MCP should point at the same SQLite file as the app.
+
+If you used the default database path:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
+```
+
+If you set `SQLITE_DB_PATH` during app setup, pass that exact same path:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code,codex \
+  --yes \
+  --db "/absolute/path/to/rah.sqlite"
+```
+
+Manual config is only for troubleshooting or unsupported clients:
 
 ```json
 {

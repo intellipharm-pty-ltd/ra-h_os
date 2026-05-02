@@ -9,7 +9,7 @@
  ╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝
 ```
 
-**TL;DR:** Use the MCP quick install if you want Claude Code, Cursor, Codex, or another agent to read and write your local graph. Clone this repository only if you also want the local browser UI. If you clone the repo, choose **OpenAI** or **local Qwen** before setup creates the vector tables.
+**TL;DR:** Clone this repository, choose where the models run, then start the local app. Your SQLite database stays on your device in every setup. Choose **OpenAI** if you want the easiest model setup. Choose **local Qwen** through Ollama or llama.cpp if you want the utility model and embedding model running on your own machine.
 
 [![Watch the setup walkthrough](https://img.youtube.com/vi/YyUCGigZIZE/hqdefault.jpg)](https://youtu.be/YyUCGigZIZE?si=USYgvmwtdGpgGdwu)
 
@@ -48,68 +48,34 @@ Current contract:
 
 ## Install
 
-### Which install should I use?
+### Choose One Model Path
+
+Every path uses a local SQLite database. The choice is only about where the two AI models run:
 
 | You want... | Use this path |
 |-------------|---------------|
-| Your AI coding agent can read/write your RA-H graph | **Option A: MCP-only quick install** |
-| A browser UI at `localhost:3000` with OpenAI models | **Option B1: Full local app with OpenAI** |
-| A browser UI at `localhost:3000` with local Qwen models through Ollama | **Option B2: Full local app with local Qwen/Ollama** |
-| A browser UI at `localhost:3000` with local Qwen models through llama.cpp | **Option B3: Full local app with local Qwen/llama.cpp** |
-| A clean demo that does not touch your real graph | **Demo-safe isolated install** |
+| The simplest setup and strongest default model quality | **Local DB + OpenAI models** |
+| No model calls leaving your computer | **Local DB + local Qwen models** |
+| A clean test that does not touch your normal graph | **Demo-safe isolated install** |
 
-### Option A: MCP-only quick install
+What "OpenAI models" means:
+- Your database is local.
+- Your notes, graph, chunks, and vectors are stored in SQLite on your device.
+- RA-H sends utility-model requests and embedding requests to the OpenAI API after you add an API key.
+- The utility model helps with descriptions and summaries. The embedding model powers semantic search.
+- Choose this if you want the easiest setup and do not want to manage local model runtimes.
 
-If you mainly want Claude Code, Cursor, Codex, or another coding agent to use RA-H, start here.
+What "local Qwen models" means:
+- Your database is local.
+- The utility model runs locally.
+- The embedding model runs locally.
+- Those model requests go to Ollama or llama.cpp on your device, not to OpenAI or another hosted model API.
+- The utility model helps with descriptions and summaries. The embedding model powers semantic search.
+- Choose this if you care most about local control, privacy, offline operation, or avoiding API usage. It requires more setup and enough local hardware.
 
-For Claude Code:
+### Option 1: Local DB + OpenAI Models
 
-```bash
-npx -y ra-h-mcp-server@latest setup --client claude-code --yes
-```
-
-Then fully restart Claude Code. On Mac, use **Cmd+Q**, then reopen it.
-
-Verify:
-
-```bash
-npx -y ra-h-mcp-server@latest doctor
-```
-
-Then ask your agent:
-
-```text
-Do you have RA-H tools available?
-```
-
-You should see tools like `queryNodes`, `retrieveQueryContext`, `createNode`, and `readSkill`.
-
-Other clients:
-
-```bash
-npx -y ra-h-mcp-server@latest setup --client cursor --yes
-npx -y ra-h-mcp-server@latest setup --client codex --yes
-```
-
-Multiple clients can be installed in one pass. This is the best path if you use both Claude Code and Codex:
-
-```bash
-npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
-```
-
-Notes:
-- `--yes` lets the installer write supported client config automatically.
-- Codex uses TOML config, so the installer writes `CODEX_HOME/config.toml` or `~/.codex/config.toml`.
-- The MCP-only path does not clone this repo and does not start the browser UI.
-- The installer defaults to the latest published MCP package. For release/debug reproducibility, pin an exact version intentionally.
-
-```bash
-npx -y ra-h-mcp-server@latest setup --client claude-code --yes --pin current
-```
-
-### Option B1: Full local app with OpenAI
-
-Use this if you want the browser UI at `localhost:3000` and want RA-H to use OpenAI for descriptions, embeddings, and semantic search.
+Use this if you want RA-H running quickly and are comfortable using OpenAI for descriptions, embeddings, and semantic search.
 
 ```bash
 git clone https://github.com/bradwmorris/ra-h_os.git
@@ -121,9 +87,9 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). Add your OpenAI API key when the app prompts you, or later in Settings -> API Keys.
 
-### Option B2: Full local app with local Qwen/Ollama
+### Option 2A: Local DB + Local Qwen/Ollama
 
-Use this if you want the browser UI at `localhost:3000` and want RA-H to call local OpenAI-compatible Ollama endpoints instead of OpenAI.
+Use this if you want the easiest local-model setup. Ollama runs the local utility and embedding models.
 
 Prerequisites:
 - Ollama is installed and running.
@@ -141,9 +107,9 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). Settings -> API Keys will show the active local model profile and disable OpenAI key entry.
 
-### Option B3: Full local app with local Qwen/llama.cpp
+### Option 2B: Local DB + Local Qwen/llama.cpp
 
-Use this if you want local model calls but prefer managing GGUF files and llama.cpp server processes yourself.
+Use this if you want local model calls and prefer managing GGUF files and llama.cpp server processes yourself.
 
 Prerequisites:
 - llama.cpp is installed.
@@ -169,7 +135,26 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). Settings -> API Keys will show the active local model profile and disable OpenAI key entry.
 
-If you also want your coding agent connected to the same default database, run Option A after the app setup. If you override `SQLITE_DB_PATH`, pass the same path to the MCP installer with `--db`.
+### Connect MCP After App Setup
+
+MCP lets Claude Code, Codex, Cursor, and other coding agents read and write your RA-H graph. Configure it after the app database exists.
+
+If you used the default database path:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
+```
+
+If you used a custom `SQLITE_DB_PATH`, pass that exact same path with `--db`:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code,codex \
+  --yes \
+  --db "/absolute/path/to/rah.sqlite"
+```
+
+Fully restart the agent client after changing MCP config. For Claude Code on Mac, use **Cmd+Q**, then reopen it.
 
 Full install details:
 - [docs/README.md](./docs/README.md)
