@@ -314,6 +314,83 @@ npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes --db "$HOME
 
 ---
 
+## Point MCP At The Right Database
+
+The MCP server reads and writes whichever SQLite file is set as `RAH_DB_PATH`.
+
+Use the same database path for the app and for MCP. If these paths do not match, the browser UI and your coding agent will be looking at different graphs.
+
+### Default Database
+
+If you used the default app-data database, install MCP without `--db`:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes
+```
+
+That points MCP at the default platform path:
+
+```text
+~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
+~/.local/share/RA-H/db/rah.sqlite                  # Linux
+%APPDATA%/RA-H/db/rah.sqlite                       # Windows
+```
+
+### Custom Or Repo-Local Database
+
+If you set `SQLITE_DB_PATH` during app setup, pass that exact same path to the MCP installer with `--db`.
+
+Example repo-local app setup:
+
+```bash
+SQLITE_DB_PATH="$PWD/.ra-h/db/rah.sqlite" npm run setup:local -- --profile qwen-local
+```
+
+Matching MCP setup:
+
+```bash
+npx -y ra-h-mcp-server@latest setup \
+  --client claude-code,codex \
+  --yes \
+  --db "$PWD/.ra-h/db/rah.sqlite"
+```
+
+### Project-Scoped Claude Code MCP
+
+If you want Claude Code to use a repo-local database only inside this repo, create a project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ra-h": {
+      "command": "npx",
+      "args": ["-y", "ra-h-mcp-server@latest"],
+      "env": {
+        "RAH_DB_PATH": "/absolute/path/to/ra-h_os/.ra-h/db/rah.sqlite"
+      }
+    }
+  }
+}
+```
+
+Use the server name `ra-h` in project config if you want the project database to override a user-level `ra-h` server while Claude is opened in that repo.
+
+Keep `.mcp.json` out of git if it contains a machine-specific path.
+
+### Verify The Active MCP Database
+
+After configuring MCP, fully restart the client.
+
+Then run:
+
+```bash
+npx -y ra-h-mcp-server@latest doctor --db "/path/to/rah.sqlite"
+```
+
+Inside your agent, ask it to use the RA-H MCP server and report the database path it is using before it creates or updates nodes.
+
+---
+
 ## Demo-safe isolated install
 
 If you need a clean demo without touching your normal RA-H database:
@@ -340,6 +417,8 @@ The recommended path is the CLI installer:
 ```bash
 npx -y ra-h-mcp-server@latest setup --client claude-code --yes
 ```
+
+If your app uses a custom database path, include `--db` with that exact path. See [Point MCP At The Right Database](#point-mcp-at-the-right-database).
 
 Manual config is still useful for troubleshooting or unsupported clients. Add this to your MCP client config and restart the client fully:
 
