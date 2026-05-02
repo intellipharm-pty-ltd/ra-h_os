@@ -99,10 +99,25 @@ export class SqliteVecBackend implements VectorBackend {
   async healthCheck(): Promise<VectorBackendHealth> {
     const sqlite = getSQLiteClient();
     const ok = await sqlite.checkVectorExtension();
+    const expectedDimensions = getEmbeddingProviderInfo().dimensions;
+    const tableDimensions = sqlite.getVectorTableDimensions();
+    const mismatchedTables = Object.entries(tableDimensions)
+      .filter(([, dimensions]) => dimensions !== null && dimensions !== expectedDimensions)
+      .map(([table, dimensions]) => `${table}=${dimensions}`);
+
+    if (mismatchedTables.length > 0) {
+      return {
+        ok: false,
+        backend: 'sqlite-vec',
+        dimensions: expectedDimensions,
+        detail: `sqlite-vec table dimensions mismatch (${mismatchedTables.join(', ')}), expected ${expectedDimensions}. Run npm run rebuild:embeddings.`,
+      };
+    }
+
     return {
       ok,
       backend: 'sqlite-vec',
-      dimensions: getEmbeddingProviderInfo().dimensions,
+      dimensions: expectedDimensions,
       detail: ok ? 'sqlite-vec extension loaded' : 'sqlite-vec extension unavailable',
     };
   }

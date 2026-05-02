@@ -18,6 +18,7 @@ export interface SQLiteQueryResult<T = any> {
 }
 
 type FtsSurfaceName = 'nodes' | 'chunks';
+type VectorTableName = 'vec_nodes' | 'vec_chunks';
 
 interface IntegrityProbeResult {
   ok: boolean;
@@ -283,31 +284,80 @@ class SQLiteClient {
   public ensureVectorExtensions(): void {
     try {
       const dimensions = getEmbeddingProviderInfo().dimensions;
-      // Test for vec_nodes and vec_chunks; create them if missing
-      const hasVecNodes = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get('vec_nodes');
-      if (!hasVecNodes) {
-        this.db.exec(`
-          CREATE VIRTUAL TABLE vec_nodes USING vec0(
-            node_id INTEGER PRIMARY KEY,
-            embedding FLOAT[${dimensions}]
-          );
-        `);
-        console.log('Created vec_nodes virtual table');
-      }
-
-      const hasVecChunks = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get('vec_chunks');
-      if (!hasVecChunks) {
-        this.db.exec(`
-          CREATE VIRTUAL TABLE vec_chunks USING vec0(
-            chunk_id INTEGER PRIMARY KEY,
-            embedding FLOAT[${dimensions}]
-          );
-        `);
-        console.log('Created vec_chunks virtual table');
-      }
+      this.ensureVectorTable('vec_nodes', dimensions);
+      this.ensureVectorTable('vec_chunks', dimensions);
     } catch (error) {
       console.warn('Vector extension not available:', error);
     }
+  }
+
+  private getVectorTableSql(tableName: VectorTableName): string | null {
+    const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+      .get(tableName) as { sql?: string } | undefined;
+    return row?.sql || null;
+  }
+
+  public getVectorTableDimensions(): Record<'nodes' | 'chunks', number | null> {
+    return {
+      nodes: this.getVectorTableDimension('vec_nodes'),
+      chunks: this.getVectorTableDimension('vec_chunks'),
+    };
+  }
+
+  private getVectorTableDimension(tableName: VectorTableName): number | null {
+    const sql = this.getVectorTableSql(tableName);
+    const match = sql?.match(/embedding\s+FLOAT\[(\d+)\]/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  private createVectorTable(tableName: VectorTableName, dimensions: number): void {
+    const idColumn = tableName === 'vec_nodes' ? 'node_id' : 'chunk_id';
+    this.db.exec(`
+      CREATE VIRTUAL TABLE ${tableName} USING vec0(
+        ${idColumn} INTEGER PRIMARY KEY,
+        embedding FLOAT[${dimensions}]
+      );
+    `);
+  }
+
+  private ensureVectorTable(tableName: VectorTableName, dimensions: number): void {
+    const existingSql = this.getVectorTableSql(tableName);
+    if (!existingSql) {
+      this.createVectorTable(tableName, dimensions);
+      console.log(`Created ${tableName} virtual table`);
+      return;
+    }
+
+    const existingDimensions = this.getVectorTableDimension(tableName);
+    if (existingDimensions === dimensions) {
+      return;
+    }
+
+    const rowCount = this.countVectorRows(tableName);
+    if (rowCount === 0 || this.maintenanceMode) {
+      this.db.exec(`DROP TABLE IF EXISTS ${tableName};`);
+      this.createVectorTable(tableName, dimensions);
+      console.warn(`Recreated ${tableName} virtual table for ${dimensions} dimensions (was ${existingDimensions ?? 'unknown'}).`);
+      return;
+    }
+
+    console.warn(
+      `${tableName} uses ${existingDimensions ?? 'unknown'} dimensions, but the active embedding profile requires ${dimensions}. ` +
+      'Run npm run rebuild:embeddings to recreate derived vectors.'
+    );
+  }
+
+  public recreateVectorTables(): void {
+    if (this.readOnly) {
+      throw new Error('Cannot recreate vector tables while SQLITE_READONLY=true.');
+    }
+    const dimensions = getEmbeddingProviderInfo().dimensions;
+    this.db.exec(`
+      DROP TABLE IF EXISTS vec_nodes;
+      DROP TABLE IF EXISTS vec_chunks;
+    `);
+    this.createVectorTable('vec_nodes', dimensions);
+    this.createVectorTable('vec_chunks', dimensions);
   }
 
   private ensureVectorTables(): void {
@@ -1333,7 +1383,7 @@ class SQLiteClient {
     );
   }
 
-  private countVectorRows(tableName: 'vec_nodes' | 'vec_chunks'): number {
+  private countVectorRows(tableName: VectorTableName): number {
     try {
       const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(tableName);
       if (!exists) return 0;

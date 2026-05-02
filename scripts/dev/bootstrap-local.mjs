@@ -551,12 +551,19 @@ function ensureCoreSchema(db) {
   `);
 }
 
-function tryInitVectorTables(db, dbPath) {
+function getEmbeddingDimensions(env) {
+  const defaultDimensions = env.EMBEDDING_PROFILE === 'openai-compatible' || env.EMBEDDING_PROFILE === 'custom'
+    ? '1024'
+    : '1536';
+  return Number(env.EMBEDDING_DIMENSIONS || defaultDimensions);
+}
+
+function tryInitVectorTables(db, dbPath, env) {
   const extension = process.platform === 'darwin' ? 'dylib' : process.platform === 'win32' ? 'dll' : 'so';
   const extensionPath = process.env.SQLITE_VEC_EXTENSION_PATH || path.join(repoDir, 'vendor', 'sqlite-extensions', `vec0.${extension}`);
-  const dimensions = Number(process.env.EMBEDDING_DIMENSIONS || '1536');
+  const dimensions = getEmbeddingDimensions(env);
   if (!Number.isInteger(dimensions) || dimensions <= 0) {
-    throw new Error(`Invalid EMBEDDING_DIMENSIONS="${process.env.EMBEDDING_DIMENSIONS}"`);
+    throw new Error(`Invalid EMBEDDING_DIMENSIONS="${env.EMBEDDING_DIMENSIONS}"`);
   }
 
   try {
@@ -585,11 +592,12 @@ function main() {
 
   ensureEnvFile();
 
-  const env = parseEnvFile(targetEnv);
+  const env = { ...parseEnvFile(targetEnv), ...process.env };
   if (process.env.SQLITE_DB_PATH) {
     ensureEnvValue('SQLITE_DB_PATH', process.env.SQLITE_DB_PATH);
+    env.SQLITE_DB_PATH = process.env.SQLITE_DB_PATH;
   }
-  const dbPath = expandPath(process.env.SQLITE_DB_PATH || env.SQLITE_DB_PATH || getDefaultDbPath());
+  const dbPath = expandPath(env.SQLITE_DB_PATH || getDefaultDbPath());
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   if (!fs.existsSync(dbPath)) {
     fs.closeSync(fs.openSync(dbPath, 'w'));
@@ -598,7 +606,7 @@ function main() {
   const db = new Database(dbPath);
   try {
     ensureCoreSchema(db);
-    tryInitVectorTables(db, dbPath);
+    tryInitVectorTables(db, dbPath, env);
   } finally {
     db.close();
   }
