@@ -30,7 +30,8 @@
 If you just want RA-H OS working:
 1. Use the MCP quick install below if you mainly want agent access.
 2. Use the OpenAI local app quick start if you want the browser UI with OpenAI models.
-3. Use the local Qwen quick start if you want the browser UI with local Ollama models.
+3. Use the local Qwen/Ollama quick start if you want the browser UI with local Ollama models.
+4. Use the local Qwen/llama.cpp quick start if you want to manage GGUF files and llama.cpp servers yourself.
 
 ## MCP Quick Install
 
@@ -56,7 +57,7 @@ npm run dev
 
 Open http://localhost:3000 and add your OpenAI API key when prompted, or later in Settings -> API Keys.
 
-## Local App Quick Start: Local Qwen
+## Local App Quick Start: Local Qwen/Ollama
 
 Requires Ollama to be installed and running.
 
@@ -72,7 +73,30 @@ npm run dev
 
 Open http://localhost:3000. Settings -> API Keys shows the active local model profile and disables OpenAI key entry.
 
-Fresh app setup must choose `--profile openai` or `--profile qwen-local` before vector tables are created. OpenAI embeddings use width `1536`; the supported Qwen embedding profile uses width `1024`.
+## Local App Quick Start: Local Qwen/llama.cpp
+
+Requires llama.cpp to be installed, compatible Qwen GGUF files to exist on disk, and separate OpenAI-compatible servers to be running.
+
+Example servers:
+
+```bash
+llama-server -m /models/qwen3-4b.gguf --port 8080
+llama-server -m /models/qwen3-embedding-0.6b.gguf --embedding --port 8081
+```
+
+Then set up RA-H:
+
+```bash
+git clone https://github.com/bradwmorris/ra-h_os.git
+cd ra-h_os
+npm install
+npm run setup:local -- --profile llama-cpp
+npm run dev
+```
+
+Open http://localhost:3000. Settings -> API Keys shows the active local model profile and disables OpenAI key entry.
+
+Fresh app setup must choose `--profile openai`, `--profile qwen-local`, or `--profile llama-cpp` before vector tables are created. OpenAI embeddings use width `1536`; the supported Qwen embedding profiles use width `1024`.
 
 ## MCP Integration
 

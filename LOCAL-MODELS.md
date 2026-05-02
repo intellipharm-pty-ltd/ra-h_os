@@ -13,6 +13,8 @@ OpenAI remains the default supported path. Local mode is for users who are comfo
 
 ## Core Env
 
+Ollama:
+
 ```bash
 LLM_PROFILE=openai-compatible
 LLM_BASE_URL=http://127.0.0.1:11434/v1
@@ -21,6 +23,19 @@ LLM_MODEL=qwen3:4b
 EMBEDDING_PROFILE=openai-compatible
 EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
 EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=1024
+```
+
+llama.cpp:
+
+```bash
+LLM_PROFILE=openai-compatible
+LLM_BASE_URL=http://127.0.0.1:8080/v1
+LLM_MODEL=qwen3-4b
+
+EMBEDDING_PROFILE=openai-compatible
+EMBEDDING_BASE_URL=http://127.0.0.1:8081/v1
+EMBEDDING_MODEL=qwen3-embedding-0.6b
 EMBEDDING_DIMENSIONS=1024
 ```
 
