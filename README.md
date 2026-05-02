@@ -9,11 +9,11 @@
  ╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝
 ```
 
-**TL;DR:** Use the MCP quick install if you want Claude Code, Cursor, Codex, or another agent to read and write your local graph. Clone this repository only if you also want the local browser UI.
+**TL;DR:** Use the MCP quick install if you want Claude Code, Cursor, Codex, or another agent to read and write your local graph. Clone this repository only if you also want the local browser UI. If you clone the repo, choose **OpenAI** or **local Qwen** before setup creates the vector tables.
 
 [![Watch the setup walkthrough](https://img.youtube.com/vi/YyUCGigZIZE/hqdefault.jpg)](https://youtu.be/YyUCGigZIZE?si=USYgvmwtdGpgGdwu)
 
-> **Cross-platform local runtime:** macOS works out of the box. Windows and Linux are now being hardened for the core local/web app flow, but semantic/vector search still depends on either sqlite-vec for your platform or a later Qdrant setup.
+> **Cross-platform local runtime:** macOS works out of the box. OpenAI is the default AI path. A supported local model profile is available through OpenAI-compatible local endpoints, and Qdrant is available as a vector sidecar when sqlite-vec is unreliable on your platform.
 
 **Docs start here:** [docs/README.md](./docs/README.md)
 
@@ -25,7 +25,7 @@
 2. **Provides a UI** — Browse, search, and organize your nodes at `localhost:3000`
 3. **Exposes an MCP server** — Claude Code and other MCP clients can query and add to your knowledge base
 
-Your data stays on your machine. Nothing is sent anywhere unless you configure an API key.
+Your database stays on your machine. With the `openai` profile, model requests go to OpenAI after you add an API key. With the `qwen-local` profile, model requests go to your local Ollama/OpenAI-compatible endpoint.
 
 Current contract:
 - no runtime `dimensions`
@@ -34,6 +34,7 @@ Current contract:
 - direct node lookup first for specific-node intent
 - `getContext` for orientation and `retrieveQueryContext` for broader current-turn grounding
 - standalone MCP writes node data, but the app owns chunking and embeddings: `nodes.source` becomes readable `chunks`, node-level vectors in `vec_nodes`, and passage vectors in `vec_chunks`
+- local model support uses external OpenAI-compatible model servers; RA-H does not bundle model weights
 
 ---
 
@@ -41,7 +42,7 @@ Current contract:
 
 - **Node.js 20.18.1+** — [nodejs.org](https://nodejs.org/)
 - **macOS** — Works out of the box
-- **Windows/Linux** — Core app flow is being validated; vector search still requires sqlite-vec for your platform (see below)
+- **Windows/Linux** — Core app flow is being validated; vector search requires sqlite-vec for your platform or Qdrant as the sidecar backend
 
 ---
 
@@ -52,7 +53,8 @@ Current contract:
 | You want... | Use this path |
 |-------------|---------------|
 | Your AI coding agent can read/write your RA-H graph | **Option A: MCP-only quick install** |
-| A browser UI at `localhost:3000` | **Option B: Full local app** |
+| A browser UI at `localhost:3000` with OpenAI models | **Option B1: Full local app with OpenAI** |
+| A browser UI at `localhost:3000` with local Qwen models | **Option B2: Full local app with local Qwen** |
 | A clean demo that does not touch your real graph | **Demo-safe isolated install** |
 
 ### Option A: MCP-only quick install
@@ -104,32 +106,97 @@ Notes:
 npx -y ra-h-mcp-server@latest setup --client claude-code --yes --pin current
 ```
 
-### Option B: Full local app
+### Option B1: Full local app with OpenAI
 
-Use this if you want the browser UI at `localhost:3000`.
+Use this if you want the browser UI at `localhost:3000` and want RA-H to use OpenAI for descriptions, embeddings, and semantic search.
 
 ```bash
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
-npm run setup:local
+npm run setup:local -- --profile openai
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000). Done.
+Open [localhost:3000](http://localhost:3000). Add your OpenAI API key when the app prompts you, or later in Settings -> API Keys.
 
-If you also want your coding agent connected to the same database, run Option A after the app setup.
+### Option B2: Full local app with local Qwen
+
+Use this if you want the browser UI at `localhost:3000` and want RA-H to call local OpenAI-compatible Ollama endpoints instead of OpenAI.
+
+Prerequisites:
+- Ollama is installed and running.
+- These models are pulled before setup.
+
+```bash
+git clone https://github.com/bradwmorris/ra-h_os.git
+cd ra-h_os
+npm install
+ollama pull qwen3:4b
+ollama pull qwen3-embedding:0.6b
+npm run setup:local -- --profile qwen-local
+npm run dev
+```
+
+Open [localhost:3000](http://localhost:3000). Settings -> API Keys will show the active local model profile and disable OpenAI key entry.
+
+If you also want your coding agent connected to the same default database, run Option A after the app setup. If you override `SQLITE_DB_PATH`, pass the same path to the MCP installer with `--db`.
 
 Full install details:
 - [docs/README.md](./docs/README.md)
 - [docs/8_mcp.md](./docs/8_mcp.md)
 - [docs/10_full-local.md](./docs/10_full-local.md)
+- [LOCAL-MODELS.md](./LOCAL-MODELS.md)
+- [QDRANT-DEPLOYMENT.md](./QDRANT-DEPLOYMENT.md)
+
+---
+
+## First-Time Setup Rules
+
+Pick the embedding profile before the database is created.
+
+This is not cosmetic. The readable `nodes` and `chunks` tables are normal SQLite tables, but the derived vector tables are created with a fixed embedding width:
+
+| Setup profile | Utility model | Embedding model | Vector width |
+|---------------|---------------|-----------------|--------------|
+| `openai` | `gpt-4o-mini` | `text-embedding-3-small` | `1536` |
+| `qwen-local` | `qwen3:4b` through Ollama | `qwen3-embedding:0.6b` through Ollama | `1024` |
+
+Setup requires one of these commands on a fresh install.
+
+OpenAI:
+
+```bash
+npm install
+npm run setup:local -- --profile openai
+npm run dev
+```
+
+Local Qwen with Ollama:
+
+```bash
+npm install
+ollama pull qwen3:4b
+ollama pull qwen3-embedding:0.6b
+npm run setup:local -- --profile qwen-local
+npm run dev
+```
+
+If you run setup without a profile and `.env.local` does not already select one, setup stops before creating vector tables and prints the two supported commands.
+
+If you change embedding provider, model, dimensions, or vector backend after data exists, your source data stays intact but derived embeddings must be rebuilt:
+
+```bash
+npm run rebuild:embeddings
+```
 
 ---
 
 ## OpenAI API Key
 
-**Optional but recommended.** Without a key, you can still create and organize nodes manually.
+Only applies to the `openai` setup profile.
+
+Without a key, you can still create and organize nodes manually.
 
 With a key, you get:
 - Auto-generated descriptions when you add nodes
@@ -138,13 +205,79 @@ With a key, you get:
 
 **Cost:** Less than $0.10/day for heavy use. Most users spend $1-2/month.
 
-**Setup:** The app will prompt you on first launch, or go to Settings → API Keys.
+**Setup:** The app will prompt you on first launch, or go to Settings -> API Keys.
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+If you selected `qwen-local`, do not add an OpenAI key in the UI. Settings -> API Keys shows the active local model profile and disables OpenAI key entry so the install stays aligned with the setup profile.
+
+---
+
+## Local Model Profile
+
+Use the `qwen-local` setup profile if you want local utility LLM calls and local embeddings.
+
+RA-H does not bundle model weights. It calls a local OpenAI-compatible HTTP endpoint. The tested local path is Ollama with Qwen.
+
+Supported local contract:
+
+```bash
+LLM_PROFILE=openai-compatible
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_MODEL=qwen3:4b
+
+EMBEDDING_PROFILE=openai-compatible
+EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
+EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=1024
+```
+
+Runtime guides:
+
+- [Ollama local profile](./OLLAMA-LOCAL-PROFILE.md)
+- [llama.cpp local profile](./LLAMA-CPP-LOCAL-PROFILE.md)
+
+Validate local AI and vector configuration:
+
+```bash
+npm run doctor:local-ai
+```
+
+If you change embedding provider, model, dimensions, or vector backend after data exists:
+
+```bash
+npm run rebuild:embeddings
+```
+
+Custom model/provider overrides are advanced and not a broad support guarantee. They may work, but the tested product surface is OpenAI plus the narrow local Qwen profile.
+
+---
+
+## Vector Backends
+
+Default:
+
+```bash
+VECTOR_BACKEND=sqlite-vec
+```
+
+Use Qdrant when sqlite-vec is unavailable or unreliable:
+
+```bash
+docker compose up -d qdrant
+VECTOR_BACKEND=qdrant
+QDRANT_URL=http://localhost:6333
+```
+
+SQLite remains the source-of-truth database. Qdrant stores only derived vector indexes.
+
+Qdrant does not change your model choice. OpenAI vs local Qwen is controlled by `LLM_PROFILE` and `EMBEDDING_PROFILE`. sqlite-vec vs Qdrant is controlled by `VECTOR_BACKEND`.
 
 ---
 
 ## Where Your Data Lives
+
+By default, setup creates and seeds the SQLite database in your operating system's app-data folder, not inside the cloned repo:
 
 ```
 ~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
@@ -152,10 +285,32 @@ Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys
 %APPDATA%/RA-H/db/rah.sqlite                       # Windows
 ```
 
+This default applies to both app profiles:
+- `npm run setup:local -- --profile openai`
+- `npm run setup:local -- --profile qwen-local`
+
 This is a standard SQLite file. You can:
 - Back it up by copying the file
 - Query it directly with `sqlite3` or any SQLite tool
 - Move it between machines
+
+You can put the database somewhere else by setting `SQLITE_DB_PATH` before setup. Use this when you want a repo-local DB, a demo DB, or any other separate database:
+
+```bash
+SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local -- --profile qwen-local
+```
+
+To put it directly inside your cloned repo, use a gitignored local folder:
+
+```bash
+SQLITE_DB_PATH="$PWD/.ra-h/db/rah.sqlite" npm run setup:local -- --profile qwen-local
+```
+
+If MCP should use that same non-default database, pass the same path to the MCP installer:
+
+```bash
+npx -y ra-h-mcp-server@latest setup --client claude-code,codex --yes --db "$HOME/Desktop/ra-h_os-demo-data/rah.sqlite"
+```
 
 ---
 
@@ -167,7 +322,7 @@ If you need a clean demo without touching your normal RA-H database:
 git clone https://github.com/bradwmorris/ra-h_os.git ~/Desktop/ra-h_os-demo
 cd ~/Desktop/ra-h_os-demo
 npm install
-SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local
+SQLITE_DB_PATH="$HOME/Desktop/ra-h_os-demo-data/rah.sqlite" npm run setup:local -- --profile qwen-local
 npm run dev
 
 npx -y ra-h-mcp-server@latest setup \
@@ -300,8 +455,11 @@ See [docs/2_schema.md](./docs/2_schema.md) and [docs/8_mcp.md](./docs/8_mcp.md) 
 
 | Command | What it does |
 |---------|--------------|
-| `npm run setup:local` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed the base schema |
+| `npm run setup:local -- --profile openai` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed OpenAI-width vector tables |
+| `npm run setup:local -- --profile qwen-local` | Rebuild native modules, create `.env.local`, create the SQLite DB, and seed Qwen-width vector tables |
+| `npm run setup:local` | Only valid if `.env.local` already selects an embedding profile; otherwise it stops before DB/vector setup |
 | `npm run bootstrap:local` | Lower-level helper used by `setup:local`; most users should not run this directly |
+| `npm run rebuild:embeddings` | Recreate derived embeddings after changing embedding provider, model, dimensions, or vector backend |
 | `npm run dev` | Start the app at localhost:3000 |
 | `npm run dev:local` | Alias for `npm run dev` |
 | `npm run build` | Production build |

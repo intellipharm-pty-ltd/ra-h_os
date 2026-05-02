@@ -83,7 +83,7 @@ Machine-readable semantic vectors for chunks.
 
 Shape:
 - `chunk_id`
-- `embedding FLOAT[1536]`
+- `embedding FLOAT[active embedding dimensions]`
 
 `vec_chunks` is a separate sqlite-vec virtual table. It is table-like, but it is optimized for vector similarity search rather than normal text inspection.
 
@@ -100,7 +100,7 @@ Concrete live example from the April 20 audit:
 - chunk `108055`: `chunk_idx = 0`
 - chunk text starts with `[0.1s] Tell me about your levels.`
 - `vec_chunks` has a matching row where `chunk_id = 108055`
-- that row stores a 1536-number embedding for semantic comparison
+- that row stores a numeric embedding for semantic comparison. OpenAI `text-embedding-3-small` defaults to 1536 dimensions; the supported local Qwen3 embedding profile uses 1024 dimensions.
 
 ### `vec_nodes`
 
@@ -108,7 +108,7 @@ Machine-readable semantic vectors for whole nodes.
 
 Shape:
 - `node_id`
-- `embedding FLOAT[1536]`
+- `embedding FLOAT[active embedding dimensions]`
 
 The join point is:
 

@@ -45,6 +45,7 @@ Important runtime distinction:
 - the standalone MCP surface talks directly to an existing SQLite DB file
 - standalone MCP can read and write nodes/edges without the app running, but it does not own chunking or embedding
 - if standalone MCP writes `nodes.source` while the app is closed, the app later processes that node through startup recovery
+- external MCP agent model choice is separate from RA-H app utility model choice; app utility LLMs and embeddings use `LLM_PROFILE` and `EMBEDDING_PROFILE`
 
 ## WAL / Multi-Surface Safety
 
@@ -124,6 +125,7 @@ MCP users should understand the same retrieval split as the app:
 - `vec_nodes` can find semantically similar whole nodes when node-level vectors exist
 - `vec_chunks` can find semantically similar passages when chunk-level vectors exist
 - standalone MCP does not generate embeddings itself
+- with the local model profile, the app later calls your configured OpenAI-compatible endpoints for descriptions, summaries, and embeddings
 
 If an external agent creates or updates a node through standalone MCP while the app is closed, the node can exist before its chunks and vectors do. The app-owned pipeline processes that later.
 

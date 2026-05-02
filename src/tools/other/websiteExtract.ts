@@ -1,11 +1,10 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { generateText } from 'ai';
 import { extractWebsite } from '@/services/typescript/extractors/website';
 import { getInternalApiBaseUrl } from '@/services/runtime/apiBase';
 import { formatNodeForChat } from '../infrastructure/nodeFormatter';
 import { validateExplicitDescription } from '@/services/database/quality';
-import { createLocalOpenAIProvider } from '@/services/openai/localProvider';
+import { generateUtilityText } from '@/services/llm/provider';
 
 function ensureNodeDescription(candidate: string | undefined, fallbackLead: string): string {
   const normalizedCandidate = typeof candidate === 'string'
@@ -40,7 +39,6 @@ async function analyzeContentWithAI(
   contentType: string
 ) {
   try {
-    const provider = createLocalOpenAIProvider();
     const prompt = `Analyze this ${contentType} content and provide classification.
 
 Title: "${title}"
@@ -71,13 +69,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "reasoning": "Brief explanation of classification choices"
 }`;
 
-    const response = await generateText({
-      model: provider('gpt-4o-mini'),
+    const text = await generateUtilityText({
       prompt,
-      maxOutputTokens: 800
+      maxOutputTokens: 800,
+      responseFormat: 'json',
+      task: 'extraction_analysis',
     });
 
-    let content = response.text || '{}';
+    let content = text || '{}';
 
     // Clean up the response - remove markdown code blocks if present
     content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();

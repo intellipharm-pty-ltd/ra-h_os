@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server';
 import { getSQLiteClient } from '@/services/database/sqlite-client';
 import { chunkService } from '@/services/database/chunks';
+import { createEmbeddingProvider } from '@/services/embedding/provider';
+import { createUtilityLlmProvider } from '@/services/llm/provider';
+import { getVectorBackend } from '@/services/vectorBackend/factory';
+import { getVectorBackendType } from '@/services/vectorBackend';
+
+interface ChunkStats {
+  total_chunks: number;
+  vectorized_chunks: number | null;
+  missing_embeddings: number | null;
+  coverage_percentage: number | null;
+}
+
+interface VectorStats {
+  vec_chunks_count?: number;
+  matches_chunk_embeddings?: boolean;
+  extension_loaded?: boolean;
+  reason?: string;
+  error?: string;
+  suggestion?: string;
+  backend?: string;
+  status?: unknown;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export async function GET() {
   try {
@@ -15,10 +41,16 @@ export async function GET() {
       });
     }
 
+    const vectorBackend = await getVectorBackend();
+    const vectorBackendHealth = await vectorBackend.healthCheck();
+    const embeddingInfo = createEmbeddingProvider().info();
+    const utilityInfo = createUtilityLlmProvider().info();
+    const profileStatus = sqlite.getEmbeddingProfileStatus();
+
     // Check if vector extension is loaded
     const vectorExtensionTest = await sqlite.checkVectorExtension();
-    let vectorStats = null;
-    let chunkStats = null;
+    let vectorStats: VectorStats | null = null;
+    let chunkStats: ChunkStats | null = null;
     let vectorHealth = vectorExtensionTest ? 'healthy' : 'unavailable';
 
     try {
@@ -30,7 +62,14 @@ export async function GET() {
         coverage_percentage: null,
       };
 
-      if (vectorExtensionTest) {
+      if (getVectorBackendType() === 'qdrant') {
+        vectorHealth = vectorBackendHealth.ok ? 'healthy' : 'unavailable';
+        vectorStats = {
+          backend: 'qdrant',
+          status: vectorBackendHealth,
+          matches_chunk_embeddings: !profileStatus.rebuild_required,
+        };
+      } else if (vectorExtensionTest) {
         try {
           const chunksWithoutEmbeddings = await chunkService.getChunksWithoutEmbeddings();
           const vectorizedCount = totalChunks - chunksWithoutEmbeddings.length;
@@ -50,10 +89,10 @@ export async function GET() {
           };
           
           vectorHealth = vecCount === vectorizedCount ? 'healthy' : 'inconsistent';
-        } catch (vecError: any) {
+        } catch (vecError: unknown) {
           vectorHealth = 'corrupted';
           vectorStats = {
-            error: vecError.message,
+            error: errorMessage(vecError),
             suggestion: 'Vector table may be corrupted and need recreation'
           };
         }
@@ -65,11 +104,11 @@ export async function GET() {
         };
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       return NextResponse.json({
         status: 'error',
         message: 'Failed to collect vector statistics',
-        details: error.message
+        details: errorMessage(error)
       });
     }
 
@@ -79,30 +118,36 @@ export async function GET() {
         database_connected: connectionTest,
         vector_extension_loaded: vectorExtensionTest,
         vector_capability: {
-          available: vectorExtensionTest,
-          backend: vectorExtensionTest ? 'sqlite-vec' : 'unavailable',
+          available: vectorBackendHealth.ok,
+          backend: getVectorBackendType(),
+          detail: vectorBackendHealth.detail,
+          dimensions: vectorBackendHealth.dimensions,
         },
+        utility_llm: utilityInfo,
+        embedding_provider: embeddingInfo,
+        embedding_profile: profileStatus,
         vector_health: vectorHealth,
         chunk_stats: chunkStats,
         vector_stats: vectorStats,
-        recommendations: generateRecommendations(vectorHealth, chunkStats, vectorStats)
+        recommendations: generateRecommendations(vectorHealth, chunkStats, vectorStats, profileStatus)
       }
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Vector health check failed:', error);
     return NextResponse.json({
       status: 'error',
       message: 'Health check failed',
-      details: error.message
+      details: errorMessage(error)
     });
   }
 }
 
 function generateRecommendations(
   vectorHealth: string, 
-  chunkStats: any, 
-  vectorStats: any
+  chunkStats: ChunkStats | null,
+  vectorStats: VectorStats | null,
+  profileStatus?: { rebuild_required?: boolean; reason?: string }
 ): string[] {
   const recommendations: string[] = [];
 
@@ -120,6 +165,10 @@ function generateRecommendations(
 
   if (vectorStats && !vectorStats.matches_chunk_embeddings) {
     recommendations.push('Vector count does not match chunk embeddings - database inconsistency detected');
+  }
+
+  if (profileStatus?.rebuild_required) {
+    recommendations.push(profileStatus.reason || 'Embedding profile changed - rebuild embeddings before semantic search');
   }
 
   if (recommendations.length === 0) {

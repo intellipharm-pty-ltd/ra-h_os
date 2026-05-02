@@ -23,7 +23,7 @@ console.log('[setup-local] Rebuilding better-sqlite3 native bindings');
 run('npm', ['rebuild', 'better-sqlite3']);
 
 console.log('[setup-local] Bootstrapping local RA-H database');
-run('npm', ['run', 'bootstrap:local']);
+run('npm', ['run', 'bootstrap:local', '--', ...process.argv.slice(2)]);
 
 console.log('');
 console.log('[setup-local] Local app setup complete.');

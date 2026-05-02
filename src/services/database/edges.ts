@@ -2,11 +2,9 @@ import { getSQLiteClient } from './sqlite-client';
 import { Edge, EdgeContext, EdgeData, EdgeCreatedVia, NodeConnection, Node } from '@/types/database';
 import { eventBroadcaster } from '../events';
 import { nodeService } from './nodes';
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { validateEdgeExplanation } from './quality';
-import { getPreferredOpenAiKey, hasPreferredOpenAiKey } from '../storage/openaiKeyServer';
+import { generateUtilityText } from '@/services/llm/provider';
 
 const inferredEdgeContextSchema = z.object({
   type: z.enum(['created_by', 'part_of', 'source_of', 'related_to']),
@@ -75,16 +73,12 @@ async function inferEdgeContext(params: {
   ].join('\n');
 
   try {
-    if (!hasPreferredOpenAiKey()) {
-      return { type: 'related_to', confidence: 0.2, swap_direction: false };
-    }
-
-    const provider = createOpenAI({ apiKey: getPreferredOpenAiKey() });
-    const { text } = await generateText({
-      model: provider('gpt-4o-mini'),
+    const text = await generateUtilityText({
       prompt,
       temperature: 0.0,
       maxOutputTokens: 120,
+      responseFormat: 'json',
+      task: 'edge_inference',
     });
 
     const parsedJson = (() => {
@@ -142,21 +136,12 @@ async function autoInferEdge(params: {
   ].join('\n');
 
   try {
-    if (!hasPreferredOpenAiKey()) {
-      return {
-        explanation: `Connection to ${toNode.title}; exact relationship uncertain.`,
-        type: 'related_to',
-        confidence: 0.2,
-        swap_direction: false,
-      };
-    }
-
-    const provider = createOpenAI({ apiKey: getPreferredOpenAiKey() });
-    const { text } = await generateText({
-      model: provider('gpt-4o-mini'),
+    const text = await generateUtilityText({
       prompt,
       temperature: 0.0,
       maxOutputTokens: 150,
+      responseFormat: 'json',
+      task: 'edge_inference',
     });
 
     const parsedJson = (() => {

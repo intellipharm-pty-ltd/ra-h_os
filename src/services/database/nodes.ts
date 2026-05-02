@@ -4,6 +4,7 @@ import { eventBroadcaster } from '../events';
 import { EmbeddingService } from '@/services/embeddings';
 import { getHighSignalSearchTerms, scoreNodeSearchMatch } from './searchRanking';
 import { buildCanonicalNodeMetadata, mergeNodeMetadata } from '@/services/nodes/metadata';
+import { getVectorBackend } from '@/services/vectorBackend/factory';
 
 type NodeRow = Node;
 type NodeSearchRow = NodeRow & { rank?: number; similarity?: number };
@@ -345,6 +346,13 @@ export class NodeService {
 
   private async deleteNodeSQLite(id: number): Promise<void> {
     const sqlite = getSQLiteClient();
+
+    try {
+      const vectorBackend = await getVectorBackend();
+      await vectorBackend.deleteNode(id);
+    } catch (error) {
+      console.warn(`[NodeService] Could not delete vectors for node ${id}:`, error);
+    }
     
     const result = sqlite.query('DELETE FROM nodes WHERE id = ?', [id]);
     
@@ -627,35 +635,27 @@ export class NodeService {
         return [];
       }
 
-      const vecExists = sqlite.prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_nodes'"
-      ).get();
-      if (!vecExists) return [];
-
-      const vectorString = `[${embedding.join(',')}]`;
       const { clauses, params } = this.buildNodeFilterClauses(filters);
-      const whereClauses = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+      const extraClauses = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
+      const vectorBackend = await getVectorBackend();
+      const matches = await vectorBackend.searchNodes(embedding, limit);
+      if (matches.length === 0) return [];
+      const matchIds = matches.map((match) => match.nodeId);
+      const scoreById = new Map(matches.map((match) => [match.nodeId, match.score]));
 
       const result = sqlite.query<NodeSearchRow>(`
-        WITH vector_matches AS (
-          SELECT node_id, distance
-          FROM vec_nodes
-          WHERE embedding MATCH ?
-          ORDER BY distance
-          LIMIT ?
-        )
         SELECT n.id, n.title, n.description, n.source, n.link, n.event_date, n.metadata,
                n.chunk_status, n.embedding_updated_at, n.embedding_text,
-               n.created_at, n.updated_at,
-               (1.0 / (1.0 + vm.distance)) AS similarity
-        FROM vector_matches vm
-        JOIN nodes n ON n.id = vm.node_id
-        ${whereClauses}
-        ORDER BY vm.distance
+               n.created_at, n.updated_at
+        FROM nodes n
+        WHERE n.id IN (${matchIds.map(() => '?').join(',')})
+        ${extraClauses}
         LIMIT ?
-      `, [vectorString, Math.max(limit * 2, 50), ...params, limit]);
+      `, [...matchIds, ...params, limit]);
 
-      return result.rows;
+      return result.rows
+        .map((row) => ({ ...row, similarity: scoreById.get(row.id) || 0 }))
+        .sort((a, b) => Number(b.similarity || 0) - Number(a.similarity || 0));
     } catch (error) {
       console.warn('[NodeSearch] Vector search unavailable, continuing without it:', error);
       return [];
@@ -679,10 +679,6 @@ export class NodeService {
   // PostgreSQL path removed in SQLite-only consolidation
 
   private async bulkUpdateNodesSQLite(ids: number[], updates: Partial<Node>): Promise<Node[]> {
-    // For SQLite, use IN (SELECT value FROM json_each(?)) for safety
-    const sqlite = getSQLiteClient();
-    const idsJson = JSON.stringify(ids);
-    
     // For now, just update one by one - could optimize later
     const updatedNodes: Node[] = [];
     for (const id of ids) {

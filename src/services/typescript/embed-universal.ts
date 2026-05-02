@@ -3,13 +3,13 @@
  * Takes a node_id, reads source content from nodes table, chunks it, and stores in chunks table
  */
 
-import OpenAI from 'openai';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
-import { getPreferredOpenAiKey } from '@/services/storage/openaiKeyServer';
 import { 
   createDatabaseConnection, 
   batchProcess 
 } from './sqlite-vec';
+import { createEmbeddingProvider, getEmbeddingProviderInfo } from '@/services/embedding/provider';
+import { getVectorBackend } from '@/services/vectorBackend/factory';
 
 interface Node {
   id: number;
@@ -18,34 +18,16 @@ interface Node {
   chunk_status?: string | null;
 }
 
-interface ChunkData {
-  content: string;
-  metadata: {
-    node_id: number;
-    chunk_index: number;
-    start_char: number;
-    end_char: number;
-  };
-}
-
 interface EmbedUniversalOptions {
   nodeId: number;
   verbose?: boolean;
 }
 
 export class UniversalEmbedder {
-  private openaiClient: OpenAI;
   private db: ReturnType<typeof createDatabaseConnection>;
   private textSplitter: RecursiveCharacterTextSplitter;
-  private vecChunksInsertSQL: string | null = null;
   
   constructor() {
-    const apiKey = getPreferredOpenAiKey();
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is not set');
-    }
-    
-    this.openaiClient = new OpenAI({ apiKey });
     this.db = createDatabaseConnection();
     
     // Configure text splitter (same as old KMS system)
@@ -57,46 +39,23 @@ export class UniversalEmbedder {
   }
 
   /**
-   * Determine correct insert SQL for vec_chunks based on actual schema
-   */
-  private resolveVecChunksInsertSQL(): string {
-    // Use declared PK column from your DB schema (confirmed: chunk_id)
-    if (!this.vecChunksInsertSQL) {
-      this.vecChunksInsertSQL = 'INSERT OR REPLACE INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)';
-    }
-    return this.vecChunksInsertSQL;
-  }
-
-  /**
-   * Generate embedding for text using OpenAI
+   * Generate embedding for text using the active embedding profile.
    */
   private async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.openaiClient.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-    });
-    
-    return response.data[0].embedding;
+    return createEmbeddingProvider().generateEmbedding(text);
   }
 
   /**
    * Delete existing chunks for a node
    */
-  private deleteExistingChunks(nodeId: number): void {
-    // First, get all chunk IDs for this node
-    const chunkIds = this.db.prepare('SELECT id FROM chunks WHERE node_id = ?').all(nodeId) as Array<{ id: number }>;
-    
-    // Delete from vec_chunks first, one by one to ensure they're removed
-    for (const chunk of chunkIds) {
-      try {
-        const deleteVecStmt = this.db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?');
-        deleteVecStmt.run(BigInt(chunk.id));
-      } catch (error) {
-        console.warn(`Could not delete vec_chunk ${chunk.id}:`, error);
-      }
+  private async deleteExistingChunks(nodeId: number): Promise<void> {
+    try {
+      const vectorBackend = await getVectorBackend();
+      await vectorBackend.deleteChunksByNode(nodeId);
+    } catch (error) {
+      console.warn(`Could not delete existing chunk vectors for node ${nodeId}:`, error);
     }
     
-    // Then delete from chunks table
     const deleteChunksStmt = this.db.prepare('DELETE FROM chunks WHERE node_id = ?');
     deleteChunksStmt.run(nodeId);
   }
@@ -108,7 +67,7 @@ export class UniversalEmbedder {
     nodeId: number,
     chunkContent: string,
     chunkIndex: number,
-    metadata: any
+    metadata: Record<string, unknown>
   ): Promise<void> {
     // Generate embedding
     const embedding = await this.generateEmbedding(chunkContent);
@@ -124,7 +83,7 @@ export class UniversalEmbedder {
       nodeId,
       chunkIndex,
       chunkContent,
-      'text-embedding-3-small',
+      getEmbeddingProviderInfo().model,
       JSON.stringify(metadata),
       now
     );
@@ -132,17 +91,10 @@ export class UniversalEmbedder {
     const chunkId = Number(result.lastInsertRowid);
     
     try {
-      const vectorString = `[${embedding.join(',')}]`;
-      try {
-        const deleteStmt = this.db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?');
-        deleteStmt.run(BigInt(chunkId));
-      } catch {}
-
-      const sql = this.resolveVecChunksInsertSQL();
-      const vecInsertStmt = this.db.prepare(sql);
-      vecInsertStmt.run(BigInt(chunkId), vectorString);
+      const vectorBackend = await getVectorBackend();
+      await vectorBackend.upsertChunk(chunkId, nodeId, chunkIndex, chunkContent, embedding);
     } catch (error) {
-      console.warn(`Could not insert into vec_chunks for chunk ${chunkId}:`, error);
+      console.warn(`Could not upsert vector for chunk ${chunkId}:`, error);
     }
   }
 
@@ -173,7 +125,7 @@ export class UniversalEmbedder {
     console.log(`Processing node ${nodeId}: "${node.title}"`);
     
     // Delete existing chunks
-    this.deleteExistingChunks(nodeId);
+    await this.deleteExistingChunks(nodeId);
     
     // Split text into chunks
     const chunks = await this.textSplitter.splitText(node.source);
@@ -274,7 +226,7 @@ export async function runCLI(args: string[]): Promise<void> {
   const embedder = new UniversalEmbedder();
   
   try {
-    const result = await embedder.processNode({ nodeId, verbose });
+    await embedder.processNode({ nodeId, verbose });
     
     if (verbose) {
       const stats = embedder.getStats();

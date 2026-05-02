@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseError } from '@/types/database';
 import { getDatabasePath, getVecExtensionPath } from '@/services/database/sqlite-runtime';
+import { getEmbeddingProviderInfo } from '@/services/embedding/provider';
+import { getVectorBackendType } from '@/services/vectorBackend';
 
 export interface SQLiteConfig {
   dbPath: string;
@@ -16,6 +18,7 @@ export interface SQLiteQueryResult<T = any> {
 }
 
 type FtsSurfaceName = 'nodes' | 'chunks';
+type VectorTableName = 'vec_nodes' | 'vec_chunks';
 
 interface IntegrityProbeResult {
   ok: boolean;
@@ -41,6 +44,28 @@ export interface DatabaseIntegrityReport {
   };
   summary: string;
   error?: string;
+}
+
+export interface EmbeddingProfileStatus {
+  active: {
+    profile: string;
+    model: string;
+    dimensions: number;
+    vector_backend: string;
+  };
+  stored: {
+    profile: string;
+    model: string;
+    dimensions: number;
+    vector_backend: string;
+    updated_at?: string;
+  } | null;
+  vectors: {
+    nodes: number;
+    chunks: number;
+  };
+  rebuild_required: boolean;
+  reason?: string;
 }
 
 class SQLiteClient {
@@ -258,31 +283,81 @@ class SQLiteClient {
 
   public ensureVectorExtensions(): void {
     try {
-      // Test for vec_nodes and vec_chunks; create them if missing
-      const hasVecNodes = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get('vec_nodes');
-      if (!hasVecNodes) {
-        this.db.exec(`
-          CREATE VIRTUAL TABLE vec_nodes USING vec0(
-            node_id INTEGER PRIMARY KEY,
-            embedding FLOAT[1536]
-          );
-        `);
-        console.log('Created vec_nodes virtual table');
-      }
-
-      const hasVecChunks = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get('vec_chunks');
-      if (!hasVecChunks) {
-        this.db.exec(`
-          CREATE VIRTUAL TABLE vec_chunks USING vec0(
-            chunk_id INTEGER PRIMARY KEY,
-            embedding FLOAT[1536]
-          );
-        `);
-        console.log('Created vec_chunks virtual table');
-      }
+      const dimensions = getEmbeddingProviderInfo().dimensions;
+      this.ensureVectorTable('vec_nodes', dimensions);
+      this.ensureVectorTable('vec_chunks', dimensions);
     } catch (error) {
       console.warn('Vector extension not available:', error);
     }
+  }
+
+  private getVectorTableSql(tableName: VectorTableName): string | null {
+    const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+      .get(tableName) as { sql?: string } | undefined;
+    return row?.sql || null;
+  }
+
+  public getVectorTableDimensions(): Record<'nodes' | 'chunks', number | null> {
+    return {
+      nodes: this.getVectorTableDimension('vec_nodes'),
+      chunks: this.getVectorTableDimension('vec_chunks'),
+    };
+  }
+
+  private getVectorTableDimension(tableName: VectorTableName): number | null {
+    const sql = this.getVectorTableSql(tableName);
+    const match = sql?.match(/embedding\s+FLOAT\[(\d+)\]/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  private createVectorTable(tableName: VectorTableName, dimensions: number): void {
+    const idColumn = tableName === 'vec_nodes' ? 'node_id' : 'chunk_id';
+    this.db.exec(`
+      CREATE VIRTUAL TABLE ${tableName} USING vec0(
+        ${idColumn} INTEGER PRIMARY KEY,
+        embedding FLOAT[${dimensions}]
+      );
+    `);
+  }
+
+  private ensureVectorTable(tableName: VectorTableName, dimensions: number): void {
+    const existingSql = this.getVectorTableSql(tableName);
+    if (!existingSql) {
+      this.createVectorTable(tableName, dimensions);
+      console.log(`Created ${tableName} virtual table`);
+      return;
+    }
+
+    const existingDimensions = this.getVectorTableDimension(tableName);
+    if (existingDimensions === dimensions) {
+      return;
+    }
+
+    const rowCount = this.countVectorRows(tableName);
+    if (rowCount === 0 || this.maintenanceMode) {
+      this.db.exec(`DROP TABLE IF EXISTS ${tableName};`);
+      this.createVectorTable(tableName, dimensions);
+      console.warn(`Recreated ${tableName} virtual table for ${dimensions} dimensions (was ${existingDimensions ?? 'unknown'}).`);
+      return;
+    }
+
+    console.warn(
+      `${tableName} uses ${existingDimensions ?? 'unknown'} dimensions, but the active embedding profile requires ${dimensions}. ` +
+      'Run npm run rebuild:embeddings to recreate derived vectors.'
+    );
+  }
+
+  public recreateVectorTables(): void {
+    if (this.readOnly) {
+      throw new Error('Cannot recreate vector tables while SQLITE_READONLY=true.');
+    }
+    const dimensions = getEmbeddingProviderInfo().dimensions;
+    this.db.exec(`
+      DROP TABLE IF EXISTS vec_nodes;
+      DROP TABLE IF EXISTS vec_chunks;
+    `);
+    this.createVectorTable('vec_nodes', dimensions);
+    this.createVectorTable('vec_chunks', dimensions);
   }
 
   private ensureVectorTables(): void {
@@ -351,6 +426,15 @@ class SQLiteClient {
         metadata TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS embedding_profile_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        profile TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dimensions INTEGER NOT NULL,
+        vector_backend TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS chats (
@@ -953,9 +1037,10 @@ class SQLiteClient {
           try {
             this.db.exec(`DROP TABLE IF EXISTS ${table};`);
           } catch {}
+          const dimensions = getEmbeddingProviderInfo().dimensions;
           const ddl = table === 'vec_nodes'
-            ? `CREATE VIRTUAL TABLE vec_nodes USING vec0(node_id INTEGER PRIMARY KEY, embedding FLOAT[1536]);`
-            : `CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[1536]);`;
+            ? `CREATE VIRTUAL TABLE vec_nodes USING vec0(node_id INTEGER PRIMARY KEY, embedding FLOAT[${dimensions}]);`
+            : `CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[${dimensions}]);`;
           try {
             this.db.exec(ddl);
             console.log(`Recreated ${table} virtual table`);
@@ -1227,6 +1312,86 @@ class SQLiteClient {
       summary,
       error: firstError,
     };
+  }
+
+  public getEmbeddingProfileStatus(): EmbeddingProfileStatus {
+    const embedding = getEmbeddingProviderInfo();
+    const active = {
+      profile: embedding.profile,
+      model: embedding.model,
+      dimensions: embedding.dimensions,
+      vector_backend: getVectorBackendType(),
+    };
+
+    const stored = this.db.prepare(`
+      SELECT profile, model, dimensions, vector_backend, updated_at
+      FROM embedding_profile_state
+      WHERE id = 1
+    `).get() as EmbeddingProfileStatus['stored'] | undefined;
+
+    const nodes = this.countVectorRows('vec_nodes');
+    const chunks = this.countVectorRows('vec_chunks');
+    const hasVectors = nodes > 0 || chunks > 0;
+
+    let rebuildRequired = false;
+    let reason: string | undefined;
+
+    if (!stored && hasVectors) {
+      rebuildRequired = true;
+      reason = 'Existing vectors do not have recorded provider/model/dimension metadata.';
+    } else if (stored) {
+      const mismatches = [
+        stored.profile !== active.profile ? `profile ${stored.profile} -> ${active.profile}` : '',
+        stored.model !== active.model ? `model ${stored.model} -> ${active.model}` : '',
+        Number(stored.dimensions) !== active.dimensions ? `dimensions ${stored.dimensions} -> ${active.dimensions}` : '',
+        stored.vector_backend !== active.vector_backend ? `backend ${stored.vector_backend} -> ${active.vector_backend}` : '',
+      ].filter(Boolean);
+
+      if (mismatches.length > 0) {
+        rebuildRequired = hasVectors;
+        reason = `Embedding/vector profile changed (${mismatches.join(', ')}). Rebuild embeddings before semantic search.`;
+      }
+    }
+
+    return {
+      active,
+      stored: stored || null,
+      vectors: { nodes, chunks },
+      rebuild_required: rebuildRequired,
+      reason,
+    };
+  }
+
+  public markEmbeddingProfileCurrent(): void {
+    if (this.readOnly) return;
+    const embedding = getEmbeddingProviderInfo();
+    this.db.prepare(`
+      INSERT INTO embedding_profile_state (id, profile, model, dimensions, vector_backend, updated_at)
+      VALUES (1, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        profile = excluded.profile,
+        model = excluded.model,
+        dimensions = excluded.dimensions,
+        vector_backend = excluded.vector_backend,
+        updated_at = excluded.updated_at
+    `).run(
+      embedding.profile,
+      embedding.model,
+      embedding.dimensions,
+      getVectorBackendType(),
+      new Date().toISOString()
+    );
+  }
+
+  private countVectorRows(tableName: VectorTableName): number {
+    try {
+      const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(tableName);
+      if (!exists) return 0;
+      const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count?: number } | undefined;
+      return Number(row?.count ?? 0);
+    } catch {
+      return 0;
+    }
   }
 
   public getIntegrityReport(forceRefresh = false): DatabaseIntegrityReport {
