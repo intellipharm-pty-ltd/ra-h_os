@@ -190,8 +190,6 @@ if [[ "$PROFILE" == "openai" ]]; then
   fi
 
   if [[ -n "$_oai_key" ]]; then
-    # Escape sed replacement metacharacters in the key
-    local _oai_key_esc
     _oai_key_esc=$(printf '%s' "$_oai_key" | sed 's/[\\&|]/\\&/g')
     if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
       sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key_esc|" .env.local && rm -f .env.local.bak
