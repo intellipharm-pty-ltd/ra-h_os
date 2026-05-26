@@ -57,6 +57,32 @@ fi
 
 cd "$INSTALL_DIR"
 
+# ── Profile pre-flight ───────────────────────────────────────────────────────
+
+if [[ "$PROFILE" == "qwen-local" ]]; then
+  command -v ollama >/dev/null 2>&1 || error "Ollama is required for the qwen-local profile but is not installed. See https://ollama.com"
+
+  info "Checking Ollama daemon..."
+  curl -sf http://127.0.0.1:11434 >/dev/null 2>&1 || error "Ollama is not running. Start it with: ollama serve"
+
+  info "Pulling qwen3:4b (utility model)..."
+  ollama pull qwen3:4b
+
+  info "Pulling qwen3-embedding:0.6b (embedding model)..."
+  ollama pull qwen3-embedding:0.6b
+fi
+
+if [[ "$PROFILE" == "llama-cpp" ]]; then
+  info "Checking llama.cpp servers..."
+  curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1 \
+    || error "No llama.cpp server found on port 8080. Start it first:
+    llama-server -m /path/to/qwen3-4b.gguf --port 8080"
+  curl -sf http://127.0.0.1:8081/v1/models >/dev/null 2>&1 \
+    || error "No llama.cpp embedding server found on port 8081. Start it first:
+    llama-server -m /path/to/qwen3-embedding-0.6b.gguf --embedding --port 8081"
+  info "llama.cpp servers reachable on ports 8080 and 8081."
+fi
+
 # ── Install & setup ──────────────────────────────────────────────────────────
 
 info "Installing dependencies..."

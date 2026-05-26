@@ -41,6 +41,42 @@ if (Test-Path $InstallDir) {
 
 Set-Location $InstallDir
 
+# ── Profile pre-flight ───────────────────────────────────────────────────────
+
+if ($Profile -eq "qwen-local") {
+  if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    Abort "Ollama is required for the qwen-local profile but is not installed. See https://ollama.com"
+  }
+
+  Info "Checking Ollama daemon..."
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:11434" -UseBasicParsing -TimeoutSec 3 | Out-Null
+  } catch {
+    Abort "Ollama is not running. Start it with: ollama serve"
+  }
+
+  Info "Pulling qwen3:4b (utility model)..."
+  ollama pull qwen3:4b
+
+  Info "Pulling qwen3-embedding:0.6b (embedding model)..."
+  ollama pull qwen3-embedding:0.6b
+}
+
+if ($Profile -eq "llama-cpp") {
+  Info "Checking llama.cpp servers..."
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:8080/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
+  } catch {
+    Abort "No llama.cpp server found on port 8080. Start it first:`n  llama-server -m C:\path\to\qwen3-4b.gguf --port 8080"
+  }
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:8081/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
+  } catch {
+    Abort "No llama.cpp embedding server found on port 8081. Start it first:`n  llama-server -m C:\path\to\qwen3-embedding-0.6b.gguf --embedding --port 8081"
+  }
+  Info "llama.cpp servers reachable on ports 8080 and 8081."
+}
+
 # ── Install & setup ──────────────────────────────────────────────────────────
 
 Info "Installing dependencies..."
