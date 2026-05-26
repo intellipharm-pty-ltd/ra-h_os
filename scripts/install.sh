@@ -38,17 +38,24 @@ command -v git >/dev/null 2>&1 || error "git is required but not installed. See 
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   warn "Node.js is not installed."
-  if ask "Install Node.js v20 via nvm now?"; then
+  # Source nvm if already present but not yet loaded in this shell
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+  if command -v nvm >/dev/null 2>&1; then
+    info "nvm detected — using it to install Node.js v20..."
+    nvm install 20
+    nvm use 20
+  elif ask "Install Node.js v20 via nvm now?"; then
     info "Installing nvm and Node.js v20..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     nvm install 20
     nvm use 20
-    command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
   else
     error "Node.js v20.18.1+ is required. Install from https://nodejs.org then re-run."
   fi
+  command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
 fi
 
 NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
