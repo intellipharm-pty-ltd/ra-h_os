@@ -168,6 +168,26 @@ else
   npm run setup:local -- --profile "$PROFILE"
 fi
 
+# ── OpenAI API key ───────────────────────────────────────────────────────────
+
+if [[ "$PROFILE" == "openai" ]]; then
+  echo ""
+  info "Enter your OpenAI API key to write it to .env.local now."
+  info "Press Enter to skip — you can add it later in Settings → API Keys."
+  read -rsp $'\033[0;32m[ra-h]\033[0m OpenAI API key: ' _oai_key </dev/tty || true
+  echo ""
+  if [[ -n "$_oai_key" ]]; then
+    if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
+      sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key|" .env.local && rm -f .env.local.bak
+    else
+      echo "OPENAI_API_KEY=$_oai_key" >> .env.local
+    fi
+    info "OpenAI API key saved to .env.local"
+  else
+    warn "Skipped — add your key later in Settings → API Keys."
+  fi
+fi
+
 # ── Vector extension check ───────────────────────────────────────────────────
 
 if [[ "$(uname -s)" == "Darwin" ]]; then

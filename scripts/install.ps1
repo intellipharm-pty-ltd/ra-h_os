@@ -157,6 +157,35 @@ if ($Profile -eq "llama-cpp") {
 }
 npm run setup:local -- --profile $Profile
 
+# ── OpenAI API key ───────────────────────────────────────────────────────────
+
+if ($Profile -eq "openai") {
+  Write-Host ""
+  Info "Enter your OpenAI API key to write it to .env.local now."
+  Info "Press Enter to skip — you can add it later in Settings -> API Keys."
+  $oaiKey = Read-Host "[ra-h] OpenAI API key" -AsSecureString
+  $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiKey)
+  )
+  if ($oaiKeyPlain) {
+    $envLocal = ".env.local"
+    if (Test-Path $envLocal) {
+      $content = Get-Content $envLocal -Raw
+      if ($content -match '(?m)^OPENAI_API_KEY=') {
+        $content = $content -replace '(?m)^OPENAI_API_KEY=.*', "OPENAI_API_KEY=$oaiKeyPlain"
+      } else {
+        $content = $content.TrimEnd() + "`nOPENAI_API_KEY=$oaiKeyPlain`n"
+      }
+      Set-Content $envLocal $content -NoNewline
+    } else {
+      Add-Content $envLocal "OPENAI_API_KEY=$oaiKeyPlain"
+    }
+    Info "OpenAI API key saved to .env.local"
+  } else {
+    Warn "Skipped — add your key later in Settings -> API Keys."
+  }
+}
+
 # ── Vector extension check ───────────────────────────────────────────────────
 
 $vecDll = "vendor\sqlite-extensions\vec0.dll"
