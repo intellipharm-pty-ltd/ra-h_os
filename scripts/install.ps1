@@ -102,7 +102,8 @@ if ($AiProfile -eq "qwen-local") {
       }
       winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent
       $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                  [System.Environment]::GetEnvironmentVariable("Path","User")
+                  [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                  $env:Path
       if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Abort "Ollama installation failed. Install manually from https://ollama.com"
       }
