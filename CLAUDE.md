@@ -17,6 +17,20 @@ npm run setup:local
 npm run dev
 ```
 
+## One-Line Installers
+For fresh-machine setup (Linux/macOS/Windows). Do not run these inside the repo — they clone it.
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+```
+
+Profiles: `openai` (default), `qwen-local` (Ollama), `llama-cpp` (custom ports).
+Key paths: `scripts/install.sh`, `scripts/install.ps1`.
+
 ## MCP Setup
 ```bash
 npx -y ra-h-mcp-server@latest setup --client claude-code --yes

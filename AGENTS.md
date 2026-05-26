@@ -33,6 +33,20 @@ npm run lint
 npm run build
 ```
 
+## Installer Scripts
+
+`scripts/install.sh` (bash) and `scripts/install.ps1` (PowerShell) are one-line installers for fresh-machine setup. They are **not** dev tools — do not run them inside an existing clone.
+
+Key behaviours to preserve when editing:
+- `set -euo pipefail` (bash) / `$ErrorActionPreference = "Stop"` (PS) — every failure must be intentionally handled with `|| warn` / `$LASTEXITCODE` checks or it aborts
+- Version parsing uses `IFS=. read -r` + `%%[!0-9]*` suffix stripping (bash) and `-replace '[^\d].*$',''` (PS) — pre-release tags like `20.18.1-rc.1` must not cause arithmetic errors
+- `.env.local` is hardened (`chmod 600` / `icacls`) immediately after `npm run setup:local` AND again after any key write — both locations are required
+- `git rev-parse --git-dir` validates existing dirs before `git pull` — non-git directories must abort, not warn-and-continue
+- `_OLLAMA_BG` flag passes daemon start method from `_start_ollama` to the caller so persistence warnings land in the right order
+- Both scripts accept `--yes` / `-Yes` for fully non-interactive CI use
+
+Profiles: `openai` (default), `qwen-local` (Ollama + model pull), `llama-cpp` (pre-running servers on `--llm-port` / `--embedding-port`).
+
 ## Docs Map
 
 - `README.md` - product overview + quick start
