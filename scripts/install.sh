@@ -124,6 +124,31 @@ cd "$INSTALL_DIR"
 _ollama_running() { curl -sf http://127.0.0.1:11434 >/dev/null 2>&1; }
 _OLLAMA_BG=false
 
+# Ollama's Linux installer uses zstd-compressed tarballs but does not check for zstd itself.
+# Ensure it's present before invoking https://ollama.com/install.sh on minimal systems.
+_ensure_zstd() {
+  command -v zstd >/dev/null 2>&1 && return 0
+  warn "zstd is required by Ollama's installer but is not installed."
+  local _sudo=""
+  [[ "$(id -u)" -ne 0 ]] && _sudo="sudo"
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Installing zstd via apt-get..."
+    $_sudo apt-get update -qq && DEBIAN_FRONTEND=noninteractive $_sudo apt-get install -y -qq zstd
+  elif command -v dnf >/dev/null 2>&1; then
+    info "Installing zstd via dnf..."
+    $_sudo dnf install -y -q zstd
+  elif command -v yum >/dev/null 2>&1; then
+    info "Installing zstd via yum..."
+    $_sudo yum install -y -q zstd
+  elif command -v pacman >/dev/null 2>&1; then
+    info "Installing zstd via pacman..."
+    $_sudo pacman -Sy --noconfirm zstd
+  else
+    error "Could not detect a supported package manager to install zstd. Install it manually then re-run."
+  fi
+  command -v zstd >/dev/null 2>&1 || error "zstd installation failed. Install it manually then re-run."
+}
+
 _start_ollama() {
   info "Starting Ollama daemon..."
   _OLLAMA_BG=false
@@ -156,6 +181,7 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
       if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
         brew install ollama
       else
+        _ensure_zstd
         curl -fsSL https://ollama.com/install.sh | sh
       fi
       command -v ollama >/dev/null 2>&1 || error "Ollama installation failed. Install manually from https://ollama.com"
