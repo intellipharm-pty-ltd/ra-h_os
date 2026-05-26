@@ -30,6 +30,7 @@ irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.p
 
 Profiles: `openai` (default), `qwen-local` (Ollama), `llama-cpp` (custom ports).
 Key paths: `scripts/install.sh`, `scripts/install.ps1`.
+Test harness: `scripts/install-tests/` — disposable Docker matrix + Windows Sandbox configs for verifying installer changes without touching the host. See `scripts/install-tests/README.md`.
 
 ## MCP Setup
 ```bash

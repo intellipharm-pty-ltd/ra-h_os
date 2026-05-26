@@ -20,6 +20,10 @@ MODE=local ./scripts/install-tests/linux-docker-matrix.sh
 
 # Linux — once the branch is on GitHub, test the actual one-liner URL
 REF=feature/one-line-install-scripts ./scripts/install-tests/linux-docker-matrix.sh
+
+# Linux — edge-case scenarios (~15 min total): no API key, non-git dir,
+# re-run uses git pull, pre-release Node version tag regression guard
+./scripts/install-tests/linux-edge-cases.sh
 ```
 
 ```powershell
@@ -55,22 +59,44 @@ See sections below for prerequisites and full option reference.
 
 ## Cleanup / disk usage
 
-Models and installed packages **are cleaned up automatically** — both platforms are designed to be disposable:
+Models and installed packages **are cleaned up automatically** during a test run — both platforms are designed to be disposable:
 
 - **Docker containers** run with `--rm`, so the container's writable layer (where ollama puts its ~3 GB of models, plus npm modules, plus everything else) is deleted on exit. Nothing about a test run persists on your host filesystem.
 - **Windows Sandbox** destroys the entire VM when the window closes. The repo mount is read-only, so the host is never touched either way.
 
-The one thing that *does* stay on disk is the Docker **base images** (ubuntu, debian, fedora) — about 500 MB total across all four distros — cached so subsequent runs are faster. To reclaim that space:
+What *does* persist between runs and accumulate over time:
+
+- **Base distro images** — `ubuntu:24.04`, `ubuntu:22.04`, `debian:12`, `fedora:40` (~500 MB total) cached so subsequent matrix runs don't re-pull.
+- **`rah-test:*` images** — the three pre-seeded Tier 2 images for edge-case scenarios (~1–2 GB total).
+- **Log directories and files** — `/tmp/rah-install-tests/<timestamp>-*/` plus top-level `/tmp/rah-*.log` from the matrix and smoke runs.
+
+### Cleanup script
 
 ```bash
-# Remove just the test base images
-docker rmi ubuntu:24.04 ubuntu:22.04 debian:12 fedora:40
+# Show what would be removed, do nothing
+./scripts/install-tests/cleanup.sh --dry-run
 
-# Or nuke everything Docker is holding onto
-docker system prune -a
+# Remove all test images + logs, prompts for confirmation
+./scripts/install-tests/cleanup.sh
+
+# Same, skip the prompt
+./scripts/install-tests/cleanup.sh --yes
+
+# Also prune Docker's shared build cache (affects ALL your docker work)
+./scripts/install-tests/cleanup.sh --with-build-cache --yes
 ```
 
-Worst case after a full qwen-local matrix run: ~500 MB of base images on disk, zero models, zero changes to your host outside Docker's own data directory.
+The script removes only test-scoped artifacts by default. Build cache pruning is opt-in because that cache is shared across every docker build on your host, not just these tests.
+
+If you'd rather run the underlying commands by hand:
+
+```bash
+docker rmi rah-test:nvm-no-node rah-test:old-node rah-test:prerelease-node
+docker rmi ubuntu:24.04 ubuntu:22.04 debian:12 fedora:40
+rm -rf /tmp/rah-install-tests /tmp/rah-*.log
+# Or, for the nuclear option (touches everything Docker has cached):
+docker system prune -a
+```
 
 ## Linux / macOS (Docker)
 
@@ -119,6 +145,35 @@ Prints a PASS/FAIL summary at the end and exits non-zero if any distro failed.
 Each distro's full output is also streamed live AND written to a timestamped log file under `/tmp/rah-install-tests/<YYYYMMDD-HHMMSS>/<image>.log`. The summary lists the log path next to each result so failures are one tail away. Override with `LOG_DIR=/path/to/dir` if you want a stable location.
 
 **Note:** in `MODE=local` the installer still `git clone`s `main` from GitHub — only `install.sh` itself comes from your working copy. Push your branch and use `REF=<branch>` if you need the clone to pick up your changes too.
+
+### Edge-case scenarios
+
+`linux-edge-cases.sh` runs seven scenarios that the distro matrix doesn't cover. Each scenario runs in its own `--rm` container against the local repo.
+
+**Tier 1 — default-image scenarios** (run against `$IMAGE`, default `ubuntu:24.04`):
+
+| Scenario | What it asserts |
+|---|---|
+| `noenv-warns` | `install.sh --yes` with no `OPENAI_API_KEY` env var → exit 0 and "Add it later in Settings" warning |
+| `non-git-dir-errors` | Existing `ra-h_os/` dir that isn't a git repo → exit 1 and "is not a git repository" error |
+| `rerun-uses-pull` | Running the installer twice → second run logs "pulling latest changes" instead of re-cloning |
+
+**Tier 2 — pre-seeded-image scenarios** (custom Docker images built from `fixtures/Dockerfile.*`):
+
+| Scenario | Image | What it asserts |
+|---|---|---|
+| `nvm-present-no-node` | `rah-test:nvm-no-node` | nvm installed but no Node → installer's "nvm detected" path runs silently |
+| `old-node-auto-upgrade` | `rah-test:old-node` | Node 18 pre-installed → installer's "too old — upgrading to v20 via nvm" recovery path runs and completes |
+| `prerelease-node-tag-no-crash` | `rah-test:prerelease-node` | Node 20 + version shim returning `20.18.1-rc.1` → installer parses suffix correctly without crashing bash arithmetic under `set -e` (regression guard for L-PASS5-1) |
+| `llama-cpp-with-mock-servers` | `rah-test:llama-cpp-mock` | `--profile llama-cpp` with `--llm-port 9090 --embedding-port 9091` and a Python mock returning 200 on `/v1/models` → reachability check uses custom ports and installer exits 0. **Limitation:** doesn't assert `.env.local` contains the custom URLs because `bootstrap-local.mjs` ignores those env vars today — tracked at [#16](https://github.com/bradwmorris/ra-h_os/issues/16) |
+
+The Tier 2 images are built once on first invocation (~2 min total — apt + nvm + Node install per image) and cached by Docker for subsequent runs. To force a rebuild after editing a Dockerfile:
+
+```bash
+docker rmi rah-test:nvm-no-node rah-test:old-node rah-test:prerelease-node rah-test:llama-cpp-mock
+```
+
+Override the Tier 1 base image with `IMAGE=debian:12` etc. (apt-based only — the bootstrap installs `curl git ca-certificates`). Tier 2 images are pinned to `ubuntu:24.04` in their Dockerfiles.
 
 ## Windows (Windows Sandbox)
 
