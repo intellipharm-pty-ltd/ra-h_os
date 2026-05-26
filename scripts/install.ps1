@@ -51,7 +51,9 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command 
 
 $nodeVersion = (node -e "process.stdout.write(process.versions.node)").Trim()
 $parts = $nodeVersion.Split('.')
-$major = [int]$parts[0]; $minor = [int]$parts[1]; $patch = [int]$parts[2]
+$major = [int]($parts[0] -replace '[^\d].*$','')
+$minor = [int]($parts[1] -replace '[^\d].*$','')
+$patch = [int]($parts[2] -replace '[^\d].*$','')
 
 $versionOk = ($major -gt 20) -or
              ($major -eq 20 -and $minor -gt 18) -or
@@ -210,6 +212,9 @@ if ($AiProfile -eq "openai") {
       [System.IO.File]::WriteAllText($envLocalAbs, $content, $utf8NoBom)
     } else {
       [System.IO.File]::AppendAllText($envLocalAbs, "OPENAI_API_KEY=$oaiKeyPlain`r`n", $utf8NoBom)
+    }
+    if (-not [string]::IsNullOrEmpty($env:USERNAME)) {
+      icacls $envLocal /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
     }
     Info "OpenAI API key saved to .env.local"
   } elseif (-not $Yes -and -not $keyAlreadySet) {

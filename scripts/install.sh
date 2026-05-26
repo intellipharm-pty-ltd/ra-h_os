@@ -67,6 +67,9 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 fi
 
 IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
+NODE_MAJOR="${NODE_MAJOR%%[!0-9]*}"
+NODE_MINOR="${NODE_MINOR%%[!0-9]*}"
+NODE_PATCH="${NODE_PATCH%%[!0-9]*}"
 
 version_ok=false
 if [[ "$NODE_MAJOR" -gt 20 ]]; then
@@ -210,6 +213,7 @@ if [[ "$PROFILE" == "openai" ]]; then
     else
       printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local  # raw key — printf doesn't interpret metacharacters
     fi
+    chmod 600 .env.local
     info "OpenAI API key saved to .env.local"
   elif [[ "$YES" != "true" ]]; then
     warn "Skipped — add your key later in Settings → API Keys."
