@@ -60,7 +60,21 @@ cd "$INSTALL_DIR"
 # ── Profile pre-flight ───────────────────────────────────────────────────────
 
 if [[ "$PROFILE" == "qwen-local" ]]; then
-  command -v ollama >/dev/null 2>&1 || error "Ollama is required for the qwen-local profile but is not installed. See https://ollama.com"
+  if ! command -v ollama >/dev/null 2>&1; then
+    warn "Ollama is not installed."
+    read -rp $'\033[0;32m[ra-h]\033[0m Install Ollama now? [y/N] ' _answer </dev/tty || true
+    if [[ "$_answer" =~ ^[Yy]$ ]]; then
+      info "Installing Ollama..."
+      if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+        brew install ollama
+      else
+        curl -fsSL https://ollama.com/install.sh | sh
+      fi
+      command -v ollama >/dev/null 2>&1 || error "Ollama installation failed. Install manually from https://ollama.com"
+    else
+      error "Ollama is required for the qwen-local profile. Install it from https://ollama.com then re-run."
+    fi
+  fi
 
   info "Checking Ollama daemon..."
   curl -sf http://127.0.0.1:11434 >/dev/null 2>&1 || error "Ollama is not running. Start it with: ollama serve"

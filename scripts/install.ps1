@@ -45,7 +45,24 @@ Set-Location $InstallDir
 
 if ($Profile -eq "qwen-local") {
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-    Abort "Ollama is required for the qwen-local profile but is not installed. See https://ollama.com"
+    Warn "Ollama is not installed."
+    $answer = Read-Host "[ra-h] Install Ollama now? [y/N]"
+    if ($answer -match '^[Yy]') {
+      Info "Installing Ollama..."
+      if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
+        # Refresh PATH so ollama is findable in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                    [System.Environment]::GetEnvironmentVariable("Path","User")
+      } else {
+        Abort "winget not available. Install Ollama manually from https://ollama.com then re-run."
+      }
+      if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+        Abort "Ollama installation failed. Install manually from https://ollama.com"
+      }
+    } else {
+      Abort "Ollama is required for the qwen-local profile. Install it from https://ollama.com then re-run."
+    }
   }
 
   Info "Checking Ollama daemon..."
