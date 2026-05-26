@@ -76,6 +76,9 @@ Thumbs.db
 # Optional eslint cache
 .eslintcache
 
+# Code review artifacts (local only)
+*_CODE_REVIEW.md
+
 # Backup files
 backups/
 
