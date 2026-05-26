@@ -39,7 +39,8 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command 
     }
     winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                [System.Environment]::GetEnvironmentVariable("Path","User")
+                [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                $env:Path
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
       Abort "Node.js installation failed. Install manually from https://nodejs.org"
     }
@@ -184,7 +185,9 @@ if ($AiProfile -eq "openai") {
 
   if ($oaiKeyPlain) {
     # Escape key for .NET regex replacement ($N is a backreference)
-    $oaiKeyEsc = $oaiKeyPlain -replace '\$', '$$$$'
+    $oaiKeyEsc  = $oaiKeyPlain -replace '\$', '$$$$'
+    $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
+    $envLocalAbs = Join-Path (Get-Location).Path $envLocal
     if (Test-Path $envLocal) {
       $content = Get-Content $envLocal -Raw
       if ($content -match '(?m)^OPENAI_API_KEY=') {
@@ -192,10 +195,12 @@ if ($AiProfile -eq "openai") {
       } else {
         $content = $content.TrimEnd() + "`r`nOPENAI_API_KEY=$oaiKeyPlain`r`n"
       }
-      Set-Content $envLocal $content -NoNewline -Encoding utf8
+      [System.IO.File]::WriteAllText($envLocalAbs, $content, $utf8NoBom)
     } else {
-      Add-Content $envLocal "OPENAI_API_KEY=$oaiKeyPlain" -Encoding utf8
+      [System.IO.File]::AppendAllText($envLocalAbs, "OPENAI_API_KEY=$oaiKeyPlain`r`n", $utf8NoBom)
     }
+    # Restrict .env.local to the current user (mirrors bash chmod 600)
+    icacls $envLocal /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
     Info "OpenAI API key saved to .env.local"
   } elseif (-not $Yes -and -not ((Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.')) {
     Warn "Skipped — add your key later in Settings -> API Keys."

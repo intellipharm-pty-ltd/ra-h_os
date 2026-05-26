@@ -263,7 +263,7 @@ With a key, you get:
 
 **Cost:** Less than $0.10/day for heavy use. Most users spend $1-2/month.
 
-**Setup:** The app will prompt you on first launch, or go to Settings -> API Keys.
+**Setup:** The install script will prompt for your key during setup, or the app will prompt on first launch, or go to Settings -> API Keys.
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 

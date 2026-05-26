@@ -55,7 +55,7 @@ The install scripts accept flags to customise the install.
 
 | Flag (bash) | Flag (PowerShell) | Default | Description |
 |---|---|---|---|
-| `--profile` | `-AiProfile` | `openai` | AI model path: `openai`, `qwen-local`, `llama-cpp` |
+| `--profile` | `-AiProfile` | `openai` | `openai`, `qwen-local`, or `llama-cpp` |
 | `--dir` | `-InstallDir` | `ra-h_os` | Directory to clone into |
 | `--llm-port` | `-LlmPort` | `8080` | llama.cpp chat server port |
 | `--embedding-port` | `-EmbeddingPort` | `8081` | llama.cpp embedding server port |

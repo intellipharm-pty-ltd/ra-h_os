@@ -11,14 +11,19 @@ LLM_PORT="8080"
 EMBEDDING_PORT="8081"
 YES="false"
 
+_usage() {
+  echo "Usage: install.sh [--profile openai|qwen-local|llama-cpp] [--dir DIR] [--llm-port PORT] [--embedding-port PORT] [--yes|-y]"
+  exit 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --profile)        PROFILE="$2";        shift 2 ;;
-    --dir)            INSTALL_DIR="$2";    shift 2 ;;
-    --llm-port)       LLM_PORT="$2";       shift 2 ;;
-    --embedding-port) EMBEDDING_PORT="$2"; shift 2 ;;
+    --profile)        [[ -n "${2:-}" ]] || _usage; PROFILE="$2";        shift 2 ;;
+    --dir)            [[ -n "${2:-}" ]] || _usage; INSTALL_DIR="$2";    shift 2 ;;
+    --llm-port)       [[ -n "${2:-}" ]] || _usage; LLM_PORT="$2";       shift 2 ;;
+    --embedding-port) [[ -n "${2:-}" ]] || _usage; EMBEDDING_PORT="$2"; shift 2 ;;
     --yes|-y)         YES="true";          shift   ;;
-    *) echo "Unknown option: $1"; exit 1 ;;
+    *) echo "Unknown option: $1"; _usage ;;
   esac
 done
 
@@ -30,7 +35,7 @@ ask()   {
   [[ "$YES" == "true" ]] && return 0
   local _a
   read -rp $'\033[0;32m[ra-h]\033[0m '"$1"$' [y/N] ' _a </dev/tty || true
-  [[ "$_a" =~ ^[Yy]$ ]]
+  [[ "$_a" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
 # ── git check ────────────────────────────────────────────────────────────────
@@ -102,6 +107,7 @@ _start_ollama() {
     sudo systemctl start ollama
   else
     nohup ollama serve >/dev/null 2>&1 &
+    warn "Ollama running as a background process — not persistent across logout. See https://github.com/ollama/ollama/blob/main/docs/linux.md to install as a service."
   fi
   local i=0
   while [[ $i -lt 15 ]]; do _ollama_running && return 0; sleep 1; i=$((i+1)); done
@@ -194,7 +200,7 @@ if [[ "$PROFILE" == "openai" ]]; then
     if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
       sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key_esc|" .env.local && rm -f .env.local.bak
     else
-      printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local
+      printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local  # raw key — printf doesn't interpret metacharacters
     fi
     chmod 600 .env.local
     info "OpenAI API key saved to .env.local"
