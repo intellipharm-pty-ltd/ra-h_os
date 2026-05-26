@@ -59,12 +59,38 @@ $versionOk = ($major -gt 20) -or
              ($major -eq 20 -and $minor -gt 18) -or
              ($major -eq 20 -and $minor -eq 18 -and $patch -ge 1)
 
-if (-not $versionOk) { Abort "Node.js v20.18.1 or higher is required (found v$nodeVersion). See https://nodejs.org" }
+if (-not $versionOk) {
+  Warn "Node.js v$nodeVersion is too old."
+  if (Ask "Upgrade Node.js to v20 LTS via winget now?") {
+    Info "Upgrading Node.js v20 LTS..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+      Abort "winget not available. Install Node.js v20.18.1+ manually from https://nodejs.org then re-run."
+    }
+    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                $env:Path
+    $nodeVersion = (node -e "process.stdout.write(process.versions.node)").Trim()
+    $parts = $nodeVersion.Split('.')
+    $major = [int]($parts[0] -replace '[^\d].*$','')
+    $minor = [int]($parts[1] -replace '[^\d].*$','')
+    $patch = [int]($parts[2] -replace '[^\d].*$','')
+    $versionOk = ($major -gt 20) -or
+                 ($major -eq 20 -and $minor -gt 18) -or
+                 ($major -eq 20 -and $minor -eq 18 -and $patch -ge 1)
+    if (-not $versionOk) { Abort "Node.js upgrade did not reach v20.18.1+. Install manually from https://nodejs.org" }
+    Info "Node.js upgraded to v$nodeVersion."
+  } else {
+    Abort "Node.js v20.18.1 or higher is required (found v$nodeVersion). See https://nodejs.org"
+  }
+}
 
 # ── Clone ────────────────────────────────────────────────────────────────────
 
 if (Test-Path $InstallDir) {
   Warn "Directory '$InstallDir' already exists — pulling latest changes."
+  git -C $InstallDir rev-parse --git-dir 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Abort "Directory '$InstallDir' exists but is not a git repository. Remove it and re-run." }
   git -C $InstallDir pull --ff-only
   if ($LASTEXITCODE -ne 0) {
     Warn "Could not fast-forward pull (local changes or diverged history) — using existing state."

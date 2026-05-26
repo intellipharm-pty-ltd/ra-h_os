@@ -93,9 +93,13 @@ if ! $version_ok; then
     IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
     NODE_MAJOR="${NODE_MAJOR%%[!0-9]*}"; NODE_MINOR="${NODE_MINOR%%[!0-9]*}"; NODE_PATCH="${NODE_PATCH%%[!0-9]*}"
     version_ok=false
-    [[ "$NODE_MAJOR" -gt 20 ]] && version_ok=true
-    [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -gt 18 ]] && version_ok=true
-    [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -eq 18 && "$NODE_PATCH" -ge 1 ]] && version_ok=true
+    if [[ "$NODE_MAJOR" -gt 20 ]]; then
+      version_ok=true
+    elif [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -gt 18 ]]; then
+      version_ok=true
+    elif [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -eq 18 && "$NODE_PATCH" -ge 1 ]]; then
+      version_ok=true
+    fi
   fi
   $version_ok || error "Node.js v20.18.1 or higher is required (found $(node -v)). See https://nodejs.org"
 fi
@@ -104,6 +108,8 @@ fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
   warn "Directory '$INSTALL_DIR' already exists — pulling latest changes."
+  git -C "$INSTALL_DIR" rev-parse --git-dir >/dev/null 2>&1 \
+    || error "Directory '$INSTALL_DIR' exists but is not a git repository. Remove it and re-run."
   git -C "$INSTALL_DIR" pull --ff-only \
     || warn "Could not fast-forward pull (local changes or diverged history) — using existing state."
 else
@@ -134,7 +140,9 @@ _start_ollama() {
   local i=0
   while [[ $i -lt 15 ]]; do _ollama_running && break; sleep 1; i=$((i+1)); done
   if ! _ollama_running; then
-    [[ -n "$_ollama_pid" ]] && kill "$_ollama_pid" 2>/dev/null || true
+    if [[ -n "$_ollama_pid" ]] && kill -0 "$_ollama_pid" 2>/dev/null; then
+      kill "$_ollama_pid" 2>/dev/null || true
+    fi
     return 1
   fi
 }
