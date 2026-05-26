@@ -9,6 +9,7 @@ INSTALL_DIR="${INSTALL_DIR:-ra-h_os}"
 PROFILE="openai"
 LLM_PORT="8080"
 EMBEDDING_PORT="8081"
+YES="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --dir)            INSTALL_DIR="$2";    shift 2 ;;
     --llm-port)       LLM_PORT="$2";       shift 2 ;;
     --embedding-port) EMBEDDING_PORT="$2"; shift 2 ;;
+    --yes|-y)         YES="true";          shift   ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -25,6 +27,7 @@ info()  { echo -e "${GREEN}[ra-h]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[ra-h]${NC} $*"; }
 error() { echo -e "${RED}[ra-h] ERROR:${NC} $*" >&2; exit 1; }
 ask()   {
+  [[ "$YES" == "true" ]] && return 0
   local _a
   read -rp $'\033[0;32m[ra-h]\033[0m '"$1"$' [y/N] ' _a </dev/tty || true
   [[ "$_a" =~ ^[Yy]$ ]]
@@ -171,11 +174,20 @@ fi
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 
 if [[ "$PROFILE" == "openai" ]]; then
-  echo ""
-  info "Enter your OpenAI API key to write it to .env.local now."
-  info "Press Enter to skip — you can add it later in Settings → API Keys."
-  read -rsp $'\033[0;32m[ra-h]\033[0m OpenAI API key: ' _oai_key </dev/tty || true
-  echo ""
+  _oai_key="${OPENAI_API_KEY:-}"
+
+  if [[ -n "$_oai_key" ]]; then
+    info "OPENAI_API_KEY found in environment — writing to .env.local."
+  elif [[ "$YES" == "true" ]]; then
+    warn "No OPENAI_API_KEY in environment. Add it later in Settings → API Keys."
+  else
+    echo ""
+    info "Enter your OpenAI API key to write it to .env.local now."
+    info "Press Enter to skip — you can add it later in Settings → API Keys."
+    read -rsp $'\033[0;32m[ra-h]\033[0m OpenAI API key: ' _oai_key </dev/tty || true
+    echo ""
+  fi
+
   if [[ -n "$_oai_key" ]]; then
     if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
       sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key|" .env.local && rm -f .env.local.bak
@@ -183,7 +195,7 @@ if [[ "$PROFILE" == "openai" ]]; then
       echo "OPENAI_API_KEY=$_oai_key" >> .env.local
     fi
     info "OpenAI API key saved to .env.local"
-  else
+  elif [[ "$YES" != "true" ]]; then
     warn "Skipped — add your key later in Settings → API Keys."
   fi
 fi

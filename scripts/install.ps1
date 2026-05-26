@@ -5,7 +5,8 @@ param(
   [string]$Profile       = "openai",
   [string]$InstallDir    = "ra-h_os",
   [int]   $LlmPort       = 8080,
-  [int]   $EmbeddingPort = 8081
+  [int]   $EmbeddingPort = 8081,
+  [switch]$Yes
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,7 @@ function Warn  { param($msg) Write-Host "[ra-h] $msg" -ForegroundColor Yellow }
 function Abort { param($msg) Write-Host "[ra-h] ERROR: $msg" -ForegroundColor Red; exit 1 }
 function Ask   {
   param($msg)
+  if ($Yes) { return $true }
   $ans = Read-Host "[ra-h] $msg [y/N]"
   return $ans -match '^[Yy]'
 }
@@ -160,13 +162,22 @@ npm run setup:local -- --profile $Profile
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 
 if ($Profile -eq "openai") {
-  Write-Host ""
-  Info "Enter your OpenAI API key to write it to .env.local now."
-  Info "Press Enter to skip — you can add it later in Settings -> API Keys."
-  $oaiKey = Read-Host "[ra-h] OpenAI API key" -AsSecureString
-  $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiKey)
-  )
+  $oaiKeyPlain = $env:OPENAI_API_KEY
+
+  if ($oaiKeyPlain) {
+    Info "OPENAI_API_KEY found in environment — writing to .env.local."
+  } elseif ($Yes) {
+    Warn "No OPENAI_API_KEY in environment. Add it later in Settings -> API Keys."
+  } else {
+    Write-Host ""
+    Info "Enter your OpenAI API key to write it to .env.local now."
+    Info "Press Enter to skip — you can add it later in Settings -> API Keys."
+    $oaiKey = Read-Host "[ra-h] OpenAI API key" -AsSecureString
+    $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiKey)
+    )
+  }
+
   if ($oaiKeyPlain) {
     $envLocal = ".env.local"
     if (Test-Path $envLocal) {
@@ -181,7 +192,7 @@ if ($Profile -eq "openai") {
       Add-Content $envLocal "OPENAI_API_KEY=$oaiKeyPlain"
     }
     Info "OpenAI API key saved to .env.local"
-  } else {
+  } elseif (-not $Yes) {
     Warn "Skipped — add your key later in Settings -> API Keys."
   }
 }
