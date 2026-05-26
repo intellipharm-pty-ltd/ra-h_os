@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # One-line installer for RA-H OS (Linux / macOS)
 # Usage: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
-# Or with a profile: curl ... | bash -s -- --profile qwen-local
+# Or with options: curl ... | bash -s -- --profile qwen-local --llm-port 8080 --embedding-port 8081
 set -euo pipefail
 
 REPO_URL="https://github.com/bradwmorris/ra-h_os.git"
 INSTALL_DIR="${INSTALL_DIR:-ra-h_os}"
 PROFILE="openai"
+LLM_PORT="8080"
+EMBEDDING_PORT="8081"
 
-# Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --profile) PROFILE="$2"; shift 2 ;;
-    --dir)     INSTALL_DIR="$2"; shift 2 ;;
+    --profile)        PROFILE="$2";        shift 2 ;;
+    --dir)            INSTALL_DIR="$2";    shift 2 ;;
+    --llm-port)       LLM_PORT="$2";       shift 2 ;;
+    --embedding-port) EMBEDDING_PORT="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -21,12 +24,32 @@ RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[ra-h]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[ra-h]${NC} $*"; }
 error() { echo -e "${RED}[ra-h] ERROR:${NC} $*" >&2; exit 1; }
+ask()   {
+  local _a
+  read -rp $'\033[0;32m[ra-h]\033[0m '"$1"$' [y/N] ' _a </dev/tty || true
+  [[ "$_a" =~ ^[Yy]$ ]]
+}
 
-# ── Dependency checks ────────────────────────────────────────────────────────
+# ── git check ────────────────────────────────────────────────────────────────
 
-command -v git  >/dev/null 2>&1 || error "git is required but not installed."
-command -v node >/dev/null 2>&1 || error "Node.js is required but not installed. Install v20.18.1+ from https://nodejs.org"
-command -v npm  >/dev/null 2>&1 || error "npm is required but not installed."
+command -v git >/dev/null 2>&1 || error "git is required but not installed. See https://git-scm.com"
+
+# ── Node.js check ────────────────────────────────────────────────────────────
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  warn "Node.js is not installed."
+  if ask "Install Node.js v20 via nvm now?"; then
+    info "Installing nvm and Node.js v20..."
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    nvm install 20
+    nvm use 20
+    command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
+  else
+    error "Node.js v20.18.1+ is required. Install from https://nodejs.org then re-run."
+  fi
+fi
 
 NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
 NODE_MINOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[1]))")
@@ -59,11 +82,28 @@ cd "$INSTALL_DIR"
 
 # ── Profile pre-flight ───────────────────────────────────────────────────────
 
+_ollama_running() { curl -sf http://127.0.0.1:11434 >/dev/null 2>&1; }
+
+_start_ollama() {
+  info "Starting Ollama daemon..."
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null 2>&1; then
+    brew services start ollama
+  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service &>/dev/null 2>&1; then
+    sudo systemctl start ollama
+  else
+    ollama serve >/dev/null 2>&1 &
+    disown
+  fi
+  local i=0
+  while [[ $i -lt 15 ]]; do _ollama_running && return 0; sleep 1; (( i++ )) || true; done
+  return 1
+}
+
 if [[ "$PROFILE" == "qwen-local" ]]; then
+  # ── Install Ollama if missing ──
   if ! command -v ollama >/dev/null 2>&1; then
     warn "Ollama is not installed."
-    read -rp $'\033[0;32m[ra-h]\033[0m Install Ollama now? [y/N] ' _answer </dev/tty || true
-    if [[ "$_answer" =~ ^[Yy]$ ]]; then
+    if ask "Install Ollama now?"; then
       info "Installing Ollama..."
       if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
         brew install ollama
@@ -72,12 +112,22 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
       fi
       command -v ollama >/dev/null 2>&1 || error "Ollama installation failed. Install manually from https://ollama.com"
     else
-      error "Ollama is required for the qwen-local profile. Install it from https://ollama.com then re-run."
+      error "Ollama is required for the qwen-local profile. Install from https://ollama.com then re-run."
     fi
   fi
 
-  info "Checking Ollama daemon..."
-  curl -sf http://127.0.0.1:11434 >/dev/null 2>&1 || error "Ollama is not running. Start it with: ollama serve"
+  # ── Start daemon if not running ──
+  if ! _ollama_running; then
+    warn "Ollama daemon is not running."
+    if ask "Start Ollama now?"; then
+      _start_ollama || error "Ollama daemon failed to start. Run 'ollama serve' in another terminal then re-run."
+      info "Ollama daemon is running."
+    else
+      error "Ollama must be running to pull models. Start it with: ollama serve"
+    fi
+  else
+    info "Ollama daemon is running."
+  fi
 
   info "Pulling qwen3:4b (utility model)..."
   ollama pull qwen3:4b
@@ -87,14 +137,14 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
 fi
 
 if [[ "$PROFILE" == "llama-cpp" ]]; then
-  info "Checking llama.cpp servers..."
-  curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1 \
-    || error "No llama.cpp server found on port 8080. Start it first:
-    llama-server -m /path/to/qwen3-4b.gguf --port 8080"
-  curl -sf http://127.0.0.1:8081/v1/models >/dev/null 2>&1 \
-    || error "No llama.cpp embedding server found on port 8081. Start it first:
-    llama-server -m /path/to/qwen3-embedding-0.6b.gguf --embedding --port 8081"
-  info "llama.cpp servers reachable on ports 8080 and 8081."
+  info "Checking llama.cpp servers (ports $LLM_PORT / $EMBEDDING_PORT)..."
+  curl -sf "http://127.0.0.1:$LLM_PORT/v1/models" >/dev/null 2>&1 \
+    || error "No llama.cpp server on port $LLM_PORT. Start it first:
+    llama-server -m /path/to/qwen3-4b.gguf --port $LLM_PORT"
+  curl -sf "http://127.0.0.1:$EMBEDDING_PORT/v1/models" >/dev/null 2>&1 \
+    || error "No llama.cpp embedding server on port $EMBEDDING_PORT. Start it first:
+    llama-server -m /path/to/qwen3-embedding-0.6b.gguf --embedding --port $EMBEDDING_PORT"
+  info "llama.cpp servers reachable on ports $LLM_PORT and $EMBEDDING_PORT."
 fi
 
 # ── Install & setup ──────────────────────────────────────────────────────────
@@ -103,12 +153,17 @@ info "Installing dependencies..."
 npm install
 
 info "Running setup (profile: $PROFILE)..."
-npm run setup:local -- --profile "$PROFILE"
+if [[ "$PROFILE" == "llama-cpp" ]]; then
+  LLM_BASE_URL="http://127.0.0.1:$LLM_PORT/v1" \
+  EMBEDDING_BASE_URL="http://127.0.0.1:$EMBEDDING_PORT/v1" \
+  npm run setup:local -- --profile "$PROFILE"
+else
+  npm run setup:local -- --profile "$PROFILE"
+fi
 
 # ── Vector extension check ───────────────────────────────────────────────────
 
-PLATFORM=$(uname -s)
-if [[ "$PLATFORM" == "Darwin" ]]; then
+if [[ "$(uname -s)" == "Darwin" ]]; then
   VEC_EXT="vendor/sqlite-extensions/vec0.dylib"
 else
   VEC_EXT="vendor/sqlite-extensions/vec0.so"

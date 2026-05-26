@@ -1,9 +1,11 @@
 # One-line installer for RA-H OS (Windows PowerShell)
 # Usage: irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
-# Or with a profile: & ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) --profile qwen-local
+# Or with options: & ([scriptblock]::Create((irm ...install.ps1))) -Profile qwen-local -LlmPort 8080 -EmbeddingPort 8081
 param(
-  [string]$Profile    = "openai",
-  [string]$InstallDir = "ra-h_os"
+  [string]$Profile       = "openai",
+  [string]$InstallDir    = "ra-h_os",
+  [int]   $LlmPort       = 8080,
+  [int]   $EmbeddingPort = 8081
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,12 +14,37 @@ $RepoUrl = "https://github.com/bradwmorris/ra-h_os.git"
 function Info  { param($msg) Write-Host "[ra-h] $msg" -ForegroundColor Green }
 function Warn  { param($msg) Write-Host "[ra-h] $msg" -ForegroundColor Yellow }
 function Abort { param($msg) Write-Host "[ra-h] ERROR: $msg" -ForegroundColor Red; exit 1 }
+function Ask   {
+  param($msg)
+  $ans = Read-Host "[ra-h] $msg [y/N]"
+  return $ans -match '^[Yy]'
+}
 
-# ── Dependency checks ────────────────────────────────────────────────────────
+# ── git check ────────────────────────────────────────────────────────────────
 
-if (-not (Get-Command git  -ErrorAction SilentlyContinue)) { Abort "git is required but not installed. See https://git-scm.com" }
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Abort "Node.js is required but not installed. Install v20.18.1+ from https://nodejs.org" }
-if (-not (Get-Command npm  -ErrorAction SilentlyContinue)) { Abort "npm is required but not installed." }
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+  Abort "git is required but not installed. See https://git-scm.com"
+}
+
+# ── Node.js check ────────────────────────────────────────────────────────────
+
+if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm -ErrorAction SilentlyContinue)) {
+  Warn "Node.js is not installed."
+  if (Ask "Install Node.js v20 via winget now?") {
+    Info "Installing Node.js v20 LTS..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+      Abort "winget not available. Install Node.js manually from https://nodejs.org then re-run."
+    }
+    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path","User")
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+      Abort "Node.js installation failed. Install manually from https://nodejs.org"
+    }
+  } else {
+    Abort "Node.js v20.18.1+ is required. Install from https://nodejs.org then re-run."
+  }
+}
 
 $nodeVersion = (node -e "process.stdout.write(process.versions.node)").Trim()
 $parts = $nodeVersion.Split('.')
@@ -43,33 +70,57 @@ Set-Location $InstallDir
 
 # ── Profile pre-flight ───────────────────────────────────────────────────────
 
+function Test-OllamaDaemon {
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:11434" -UseBasicParsing -TimeoutSec 2 | Out-Null
+    return $true
+  } catch { return $false }
+}
+
+function Start-OllamaDaemon {
+  Info "Starting Ollama daemon..."
+  Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
+  $i = 0
+  while ($i -lt 15) {
+    if (Test-OllamaDaemon) { return $true }
+    Start-Sleep 1; $i++
+  }
+  return $false
+}
+
 if ($Profile -eq "qwen-local") {
+  # ── Install Ollama if missing ──
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     Warn "Ollama is not installed."
-    $answer = Read-Host "[ra-h] Install Ollama now? [y/N]"
-    if ($answer -match '^[Yy]') {
+    if (Ask "Install Ollama now?") {
       Info "Installing Ollama..."
-      if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
-        # Refresh PATH so ollama is findable in this session
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                    [System.Environment]::GetEnvironmentVariable("Path","User")
-      } else {
+      if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Abort "winget not available. Install Ollama manually from https://ollama.com then re-run."
       }
+      winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
+      $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                  [System.Environment]::GetEnvironmentVariable("Path","User")
       if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Abort "Ollama installation failed. Install manually from https://ollama.com"
       }
     } else {
-      Abort "Ollama is required for the qwen-local profile. Install it from https://ollama.com then re-run."
+      Abort "Ollama is required for the qwen-local profile. Install from https://ollama.com then re-run."
     }
   }
 
-  Info "Checking Ollama daemon..."
-  try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:11434" -UseBasicParsing -TimeoutSec 3 | Out-Null
-  } catch {
-    Abort "Ollama is not running. Start it with: ollama serve"
+  # ── Start daemon if not running ──
+  if (-not (Test-OllamaDaemon)) {
+    Warn "Ollama daemon is not running."
+    if (Ask "Start Ollama now?") {
+      if (-not (Start-OllamaDaemon)) {
+        Abort "Ollama daemon failed to start. Launch Ollama from the Start Menu or run 'ollama serve' then re-run."
+      }
+      Info "Ollama daemon is running."
+    } else {
+      Abort "Ollama must be running to pull models. Launch it from the Start Menu or run: ollama serve"
+    }
+  } else {
+    Info "Ollama daemon is running."
   }
 
   Info "Pulling qwen3:4b (utility model)..."
@@ -80,18 +131,18 @@ if ($Profile -eq "qwen-local") {
 }
 
 if ($Profile -eq "llama-cpp") {
-  Info "Checking llama.cpp servers..."
+  Info "Checking llama.cpp servers (ports $LlmPort / $EmbeddingPort)..."
   try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:8080/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
+    Invoke-WebRequest -Uri "http://127.0.0.1:$LlmPort/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
   } catch {
-    Abort "No llama.cpp server found on port 8080. Start it first:`n  llama-server -m C:\path\to\qwen3-4b.gguf --port 8080"
+    Abort "No llama.cpp server on port $LlmPort. Start it first:`n  llama-server -m C:\path\to\qwen3-4b.gguf --port $LlmPort"
   }
   try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:8081/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
+    Invoke-WebRequest -Uri "http://127.0.0.1:$EmbeddingPort/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
   } catch {
-    Abort "No llama.cpp embedding server found on port 8081. Start it first:`n  llama-server -m C:\path\to\qwen3-embedding-0.6b.gguf --embedding --port 8081"
+    Abort "No llama.cpp embedding server on port $EmbeddingPort. Start it first:`n  llama-server -m C:\path\to\qwen3-embedding-0.6b.gguf --embedding --port $EmbeddingPort"
   }
-  Info "llama.cpp servers reachable on ports 8080 and 8081."
+  Info "llama.cpp servers reachable on ports $LlmPort and $EmbeddingPort."
 }
 
 # ── Install & setup ──────────────────────────────────────────────────────────
@@ -100,6 +151,10 @@ Info "Installing dependencies..."
 npm install
 
 Info "Running setup (profile: $Profile)..."
+if ($Profile -eq "llama-cpp") {
+  $env:LLM_BASE_URL       = "http://127.0.0.1:$LlmPort/v1"
+  $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
+}
 npm run setup:local -- --profile $Profile
 
 # ── Vector extension check ───────────────────────────────────────────────────
