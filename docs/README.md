@@ -27,13 +27,58 @@
 
 ## Start Here
 
-If you just want RA-H OS working:
+**Fastest path — one-liner install (Linux/macOS):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+```
+
+Both scripts clone the repo, install dependencies, and run setup with the `openai` profile by default. See [one-liner options](#one-liner-options) below for local-model variants.
+
+If you prefer manual steps:
 1. Use the OpenAI local app quick start if you want the simplest setup.
 2. Use the local Qwen/Ollama quick start if you want local models with the least runtime work.
 3. Use the local Qwen/llama.cpp quick start if you want to manage GGUF files and llama.cpp servers yourself.
 4. Connect MCP after the app database exists if you want Claude Code, Codex, Cursor, or another agent to read/write the same graph.
 
 Every app path uses a local SQLite database. OpenAI setup keeps the database local but sends utility-model and embedding requests to OpenAI. Local Qwen setup keeps the database local and runs both model roles on your device through Ollama or llama.cpp, so those model calls do not go to a hosted model API.
+
+## One-Liner Options
+
+The install scripts accept a `--profile` flag to choose the AI model path.
+
+**Linux / macOS:**
+```bash
+# OpenAI (default)
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+
+# Local Qwen via Ollama (pull models first — see Local Qwen/Ollama section below)
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile qwen-local
+
+# Local Qwen via llama.cpp (start servers first — see Local Qwen/llama.cpp section below)
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile llama-cpp
+
+# Install to a custom directory
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --dir my-ra-h
+```
+
+**Windows (PowerShell):**
+```powershell
+# OpenAI (default)
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+
+# Local Qwen via Ollama
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -Profile qwen-local
+
+# Install to a custom directory
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -InstallDir my-ra-h
+```
+
+**Requirements:** Node.js v20.18.1+, git, npm. See [nodejs.org](https://nodejs.org) to install Node.js.
 
 ## Local App Quick Start: OpenAI
 

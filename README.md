@@ -48,6 +48,32 @@ Current contract:
 
 ## Install
 
+### Quick Install (one-liner)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+```
+
+With a local model profile (Ollama/Qwen):
+```bash
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile qwen-local
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+```
+
+With a local model profile:
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -Profile qwen-local
+```
+
+The script clones the repo, installs dependencies, and runs setup. See `scripts/install.sh` / `scripts/install.ps1` for source.
+
+---
+
 ### Choose One Model Path
 
 Every path uses a local SQLite database. The choice is only about where the two AI models run:
