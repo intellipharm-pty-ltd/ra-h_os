@@ -160,16 +160,20 @@ if ($AiProfile -eq "llama-cpp") {
   $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
 }
 npm run setup:local -- --profile $AiProfile
+if (Test-Path ".env.local") {
+  icacls ".env.local" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+}
 
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 
 if ($AiProfile -eq "openai") {
-  $oaiKeyPlain = $env:OPENAI_API_KEY
-  $envLocal    = ".env.local"
+  $oaiKeyPlain   = $env:OPENAI_API_KEY
+  $envLocal      = ".env.local"
+  $keyAlreadySet = (Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.'
 
   if ($oaiKeyPlain) {
     Info "OPENAI_API_KEY found in environment — writing to .env.local."
-  } elseif ((Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.') {
+  } elseif ($keyAlreadySet) {
     Info "OPENAI_API_KEY already set in .env.local — skipping."
     $oaiKeyPlain = $null
   } elseif ($Yes) {
@@ -200,10 +204,8 @@ if ($AiProfile -eq "openai") {
     } else {
       [System.IO.File]::AppendAllText($envLocalAbs, "OPENAI_API_KEY=$oaiKeyPlain`r`n", $utf8NoBom)
     }
-    # Restrict .env.local to the current user (mirrors bash chmod 600)
-    icacls $envLocal /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
     Info "OpenAI API key saved to .env.local"
-  } elseif (-not $Yes -and -not ((Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.')) {
+  } elseif (-not $Yes -and -not $keyAlreadySet) {
     Warn "Skipped — add your key later in Settings -> API Keys."
   }
 }

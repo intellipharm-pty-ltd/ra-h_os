@@ -101,17 +101,19 @@ _ollama_running() { curl -sf http://127.0.0.1:11434 >/dev/null 2>&1; }
 
 _start_ollama() {
   info "Starting Ollama daemon..."
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null 2>&1; then
+  local _bg=false
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null; then
     brew services start ollama
   elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service | grep -q ollama.service; then
     sudo systemctl start ollama
   else
     nohup ollama serve >/dev/null 2>&1 &
-    warn "Ollama running as a background process — not persistent across logout. See https://github.com/ollama/ollama/blob/main/docs/linux.md to install as a service."
+    _bg=true
   fi
   local i=0
-  while [[ $i -lt 15 ]]; do _ollama_running && return 0; sleep 1; i=$((i+1)); done
-  return 1
+  while [[ $i -lt 15 ]]; do _ollama_running && break; sleep 1; i=$((i+1)); done
+  _ollama_running || return 1
+  [[ "$_bg" == "true" ]] && warn "Ollama running as a background process — not persistent across logout. See https://github.com/ollama/ollama/blob/main/docs/linux.md to install as a service."
 }
 
 if [[ "$PROFILE" == "qwen-local" ]]; then
@@ -152,6 +154,8 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
 fi
 
 if [[ "$PROFILE" == "llama-cpp" ]]; then
+  [[ "$LLM_PORT"       =~ ^[0-9]+$ ]] || error "--llm-port must be a number (got: $LLM_PORT)"
+  [[ "$EMBEDDING_PORT" =~ ^[0-9]+$ ]] || error "--embedding-port must be a number (got: $EMBEDDING_PORT)"
   info "Checking llama.cpp servers (ports $LLM_PORT / $EMBEDDING_PORT)..."
   curl -sf "http://127.0.0.1:$LLM_PORT/v1/models" >/dev/null 2>&1 \
     || error "No llama.cpp server on port $LLM_PORT. Start it first:
@@ -175,6 +179,7 @@ if [[ "$PROFILE" == "llama-cpp" ]]; then
 else
   npm run setup:local -- --profile "$PROFILE"
 fi
+[[ -f .env.local ]] && chmod 600 .env.local
 
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 
@@ -202,7 +207,6 @@ if [[ "$PROFILE" == "openai" ]]; then
     else
       printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local  # raw key — printf doesn't interpret metacharacters
     fi
-    chmod 600 .env.local
     info "OpenAI API key saved to .env.local"
   elif [[ "$YES" != "true" ]]; then
     warn "Skipped — add your key later in Settings → API Keys."
