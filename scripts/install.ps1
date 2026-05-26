@@ -84,7 +84,12 @@ function Test-OllamaDaemon {
 
 function Start-OllamaDaemon {
   Info "Starting Ollama daemon..."
-  Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
+  try {
+    Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden -ErrorAction Stop
+  } catch {
+    Warn "Failed to launch ollama serve: $($_.Exception.Message)"
+    return $false
+  }
   $i = 0
   while ($i -lt 15) {
     if (Test-OllamaDaemon) { return $true }

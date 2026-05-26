@@ -104,17 +104,22 @@ _OLLAMA_BG=false
 _start_ollama() {
   info "Starting Ollama daemon..."
   _OLLAMA_BG=false
+  local _ollama_pid=""
   if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null; then
     brew services start ollama
   elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service | grep -q ollama.service; then
     sudo systemctl start ollama
   else
     nohup ollama serve >/dev/null 2>&1 &
+    _ollama_pid=$!
     _OLLAMA_BG=true
   fi
   local i=0
   while [[ $i -lt 15 ]]; do _ollama_running && break; sleep 1; i=$((i+1)); done
-  _ollama_running || return 1
+  if ! _ollama_running; then
+    [[ -n "$_ollama_pid" ]] && kill "$_ollama_pid" 2>/dev/null || true
+    return 1
+  fi
 }
 
 if [[ "$PROFILE" == "qwen-local" ]]; then
