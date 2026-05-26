@@ -66,9 +66,7 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
 fi
 
-NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
-NODE_MINOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[1]))")
-NODE_PATCH=$(node -e "process.stdout.write(String(process.versions.node.split('.')[2]))")
+IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
 
 version_ok=false
 if [[ "$NODE_MAJOR" -gt 20 ]]; then
@@ -98,22 +96,22 @@ cd "$INSTALL_DIR"
 # ── Profile pre-flight ───────────────────────────────────────────────────────
 
 _ollama_running() { curl -sf http://127.0.0.1:11434 >/dev/null 2>&1; }
+_OLLAMA_BG=false
 
 _start_ollama() {
   info "Starting Ollama daemon..."
-  local _bg=false
+  _OLLAMA_BG=false
   if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null; then
     brew services start ollama
   elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service | grep -q ollama.service; then
     sudo systemctl start ollama
   else
     nohup ollama serve >/dev/null 2>&1 &
-    _bg=true
+    _OLLAMA_BG=true
   fi
   local i=0
   while [[ $i -lt 15 ]]; do _ollama_running && break; sleep 1; i=$((i+1)); done
   _ollama_running || return 1
-  [[ "$_bg" == "true" ]] && warn "Ollama running as a background process — not persistent across logout. See https://github.com/ollama/ollama/blob/main/docs/linux.md to install as a service."
 }
 
 if [[ "$PROFILE" == "qwen-local" ]]; then
@@ -138,6 +136,7 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
     warn "Ollama daemon is not running."
     if ask "Start Ollama now?"; then
       _start_ollama || error "Ollama daemon failed to start. Run 'ollama serve' in another terminal then re-run."
+      [[ "$_OLLAMA_BG" == "true" ]] && warn "Ollama running as a background process — not persistent across logout. See https://github.com/ollama/ollama/blob/main/docs/linux.md to install as a service."
       info "Ollama daemon is running."
     else
       error "Ollama must be running to pull models. Start it with: ollama serve"
@@ -179,7 +178,11 @@ if [[ "$PROFILE" == "llama-cpp" ]]; then
 else
   npm run setup:local -- --profile "$PROFILE"
 fi
-[[ -f .env.local ]] && chmod 600 .env.local
+if [[ -f .env.local ]]; then
+  chmod 600 .env.local
+else
+  warn ".env.local was not created by setup:local — skipping file hardening."
+fi
 
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 

@@ -119,6 +119,7 @@ if ($AiProfile -eq "qwen-local") {
       if (-not (Start-OllamaDaemon)) {
         Abort "Ollama daemon failed to start. Launch Ollama from the Start Menu or run 'ollama serve' then re-run."
       }
+      Warn "Ollama running as a background process — not persistent across reboots. To install as a Windows service, see: https://github.com/ollama/ollama/blob/main/docs/windows.md"
       Info "Ollama daemon is running."
     } else {
       Abort "Ollama must be running to pull models. Launch it from the Start Menu or run: ollama serve"
@@ -161,7 +162,11 @@ if ($AiProfile -eq "llama-cpp") {
 }
 npm run setup:local -- --profile $AiProfile
 if (Test-Path ".env.local") {
-  icacls ".env.local" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+  if ([string]::IsNullOrEmpty($env:USERNAME)) {
+    Warn ".env.local exists but USERNAME env var is empty — skipping ACL hardening."
+  } else {
+    icacls ".env.local" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+  }
 }
 
 # ── OpenAI API key ───────────────────────────────────────────────────────────
@@ -193,6 +198,8 @@ if ($AiProfile -eq "openai") {
     $oaiKeyEsc  = $oaiKeyPlain -replace '\$', '$$$$'
     $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
     $envLocalAbs = Join-Path (Get-Location).Path $envLocal
+    # $oaiKeyEsc only needed for -replace (where $ is a regex backreference);
+    # string interpolation and AppendAllText do not interpret metacharacters.
     if (Test-Path $envLocal) {
       $content = Get-Content $envLocal -Raw
       if ($content -match '(?m)^OPENAI_API_KEY=') {
