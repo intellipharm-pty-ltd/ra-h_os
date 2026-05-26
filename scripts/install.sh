@@ -98,14 +98,13 @@ _start_ollama() {
   info "Starting Ollama daemon..."
   if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null 2>&1; then
     brew services start ollama
-  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service &>/dev/null 2>&1; then
+  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service | grep -q ollama.service; then
     sudo systemctl start ollama
   else
-    ollama serve >/dev/null 2>&1 &
-    disown
+    nohup ollama serve >/dev/null 2>&1 &
   fi
   local i=0
-  while [[ $i -lt 15 ]]; do _ollama_running && return 0; sleep 1; (( i++ )) || true; done
+  while [[ $i -lt 15 ]]; do _ollama_running && return 0; sleep 1; i=$((i+1)); done
   return 1
 }
 
@@ -178,6 +177,8 @@ if [[ "$PROFILE" == "openai" ]]; then
 
   if [[ -n "$_oai_key" ]]; then
     info "OPENAI_API_KEY found in environment — writing to .env.local."
+  elif grep -q "^OPENAI_API_KEY=." .env.local 2>/dev/null; then
+    info "OPENAI_API_KEY already set in .env.local — skipping."
   elif [[ "$YES" == "true" ]]; then
     warn "No OPENAI_API_KEY in environment. Add it later in Settings → API Keys."
   else
@@ -189,11 +190,15 @@ if [[ "$PROFILE" == "openai" ]]; then
   fi
 
   if [[ -n "$_oai_key" ]]; then
+    # Escape sed replacement metacharacters in the key
+    local _oai_key_esc
+    _oai_key_esc=$(printf '%s' "$_oai_key" | sed 's/[\\&|]/\\&/g')
     if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
-      sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key|" .env.local && rm -f .env.local.bak
+      sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key_esc|" .env.local && rm -f .env.local.bak
     else
-      echo "OPENAI_API_KEY=$_oai_key" >> .env.local
+      printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local
     fi
+    chmod 600 .env.local
     info "OpenAI API key saved to .env.local"
   elif [[ "$YES" != "true" ]]; then
     warn "Skipped — add your key later in Settings → API Keys."

@@ -55,22 +55,32 @@ Current contract:
 curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
 ```
 
-With a local model profile (Ollama/Qwen):
-```bash
-curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile qwen-local
-```
-
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
 ```
 
-With a local model profile:
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -Profile qwen-local
-```
+> **Security note:** To review before running: `curl -fsSL <url> -o install.sh && less install.sh && bash install.sh`
 
-The script clones the repo, installs dependencies, and runs setup. See `scripts/install.sh` / `scripts/install.ps1` for source.
+The scripts clone the repo, install dependencies, run setup, and prompt for your OpenAI API key. Node.js and Ollama (for `qwen-local`) are installed automatically if missing. See `scripts/install.sh` / `scripts/install.ps1` for full source.
+
+**Supported flags:**
+
+| Flag (bash) | Flag (PowerShell) | Default | Description |
+|---|---|---|---|
+| `--profile` | `-AiProfile` | `openai` | `openai`, `qwen-local`, or `llama-cpp` |
+| `--dir` | `-InstallDir` | `ra-h_os` | Clone destination |
+| `--llm-port` | `-LlmPort` | `8080` | llama.cpp chat port |
+| `--embedding-port` | `-EmbeddingPort` | `8081` | llama.cpp embedding port |
+| `--yes` / `-y` | `-Yes` | off | Non-interactive / CI mode |
+
+**CI/CD (GitHub Actions):**
+```yaml
+- name: Install RA-H
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes
+```
 
 ---
 

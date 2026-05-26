@@ -39,6 +39,8 @@ irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.p
 
 Both scripts clone the repo, install dependencies, and run setup with the `openai` profile by default. See [one-liner options](#one-liner-options) below for local-model variants.
 
+> **Security note:** These scripts are hosted on GitHub and run via `curl | bash` / `irm | iex`. If you'd prefer to review before running: `curl -fsSL <url> -o install.sh && less install.sh && bash install.sh`.
+
 If you prefer manual steps:
 1. Use the OpenAI local app quick start if you want the simplest setup.
 2. Use the local Qwen/Ollama quick start if you want local models with the least runtime work.
@@ -49,18 +51,29 @@ Every app path uses a local SQLite database. OpenAI setup keeps the database loc
 
 ## One-Liner Options
 
-The install scripts accept a `--profile` flag to choose the AI model path.
+The install scripts accept flags to customise the install.
+
+| Flag (bash) | Flag (PowerShell) | Default | Description |
+|---|---|---|---|
+| `--profile` | `-AiProfile` | `openai` | AI model path: `openai`, `qwen-local`, `llama-cpp` |
+| `--dir` | `-InstallDir` | `ra-h_os` | Directory to clone into |
+| `--llm-port` | `-LlmPort` | `8080` | llama.cpp chat server port |
+| `--embedding-port` | `-EmbeddingPort` | `8081` | llama.cpp embedding server port |
+| `--yes` / `-y` | `-Yes` | off | Skip all prompts — for CI/CD |
 
 **Linux / macOS:**
 ```bash
 # OpenAI (default)
 curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
 
-# Local Qwen via Ollama (pull models first — see Local Qwen/Ollama section below)
+# Local Qwen via Ollama (script installs and starts Ollama if needed)
 curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile qwen-local
 
 # Local Qwen via llama.cpp (start servers first — see Local Qwen/llama.cpp section below)
 curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile llama-cpp
+
+# llama.cpp with non-default ports
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --profile llama-cpp --llm-port 9090 --embedding-port 9091
 
 # Install to a custom directory
 curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --dir my-ra-h
@@ -72,10 +85,21 @@ curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/in
 irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
 
 # Local Qwen via Ollama
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -Profile qwen-local
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -AiProfile qwen-local
+
+# Local Qwen via llama.cpp with non-default ports
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -AiProfile llama-cpp -LlmPort 9090 -EmbeddingPort 9091
 
 # Install to a custom directory
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -InstallDir my-ra-h
+```
+
+**CI/CD (GitHub Actions example):**
+```yaml
+- name: Install RA-H
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes
 ```
 
 **Requirements:** Node.js v20.18.1+, git, npm. See [nodejs.org](https://nodejs.org) to install Node.js.

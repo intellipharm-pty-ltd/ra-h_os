@@ -1,8 +1,8 @@
 # One-line installer for RA-H OS (Windows PowerShell)
 # Usage: irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
-# Or with options: & ([scriptblock]::Create((irm ...install.ps1))) -Profile qwen-local -LlmPort 8080 -EmbeddingPort 8081
+# Or with options: & ([scriptblock]::Create((irm ...install.ps1))) -AiProfile qwen-local -LlmPort 8080 -EmbeddingPort 8081
 param(
-  [string]$Profile       = "openai",
+  [string]$AiProfile     = "openai",
   [string]$InstallDir    = "ra-h_os",
   [int]   $LlmPort       = 8080,
   [int]   $EmbeddingPort = 8081,
@@ -37,7 +37,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command 
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
       Abort "winget not available. Install Node.js manually from https://nodejs.org then re-run."
     }
-    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path","User")
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -90,7 +90,7 @@ function Start-OllamaDaemon {
   return $false
 }
 
-if ($Profile -eq "qwen-local") {
+if ($AiProfile -eq "qwen-local") {
   # ── Install Ollama if missing ──
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     Warn "Ollama is not installed."
@@ -99,7 +99,7 @@ if ($Profile -eq "qwen-local") {
       if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Abort "winget not available. Install Ollama manually from https://ollama.com then re-run."
       }
-      winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
+      winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent
       $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                   [System.Environment]::GetEnvironmentVariable("Path","User")
       if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
@@ -132,7 +132,7 @@ if ($Profile -eq "qwen-local") {
   ollama pull qwen3-embedding:0.6b
 }
 
-if ($Profile -eq "llama-cpp") {
+if ($AiProfile -eq "llama-cpp") {
   Info "Checking llama.cpp servers (ports $LlmPort / $EmbeddingPort)..."
   try {
     Invoke-WebRequest -Uri "http://127.0.0.1:$LlmPort/v1/models" -UseBasicParsing -TimeoutSec 3 | Out-Null
@@ -152,47 +152,52 @@ if ($Profile -eq "llama-cpp") {
 Info "Installing dependencies..."
 npm install
 
-Info "Running setup (profile: $Profile)..."
-if ($Profile -eq "llama-cpp") {
+Info "Running setup (profile: $AiProfile)..."
+if ($AiProfile -eq "llama-cpp") {
   $env:LLM_BASE_URL       = "http://127.0.0.1:$LlmPort/v1"
   $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
 }
-npm run setup:local -- --profile $Profile
+npm run setup:local -- --profile $AiProfile
 
 # ── OpenAI API key ───────────────────────────────────────────────────────────
 
-if ($Profile -eq "openai") {
+if ($AiProfile -eq "openai") {
   $oaiKeyPlain = $env:OPENAI_API_KEY
+  $envLocal    = ".env.local"
 
   if ($oaiKeyPlain) {
     Info "OPENAI_API_KEY found in environment — writing to .env.local."
+  } elseif ((Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.') {
+    Info "OPENAI_API_KEY already set in .env.local — skipping."
+    $oaiKeyPlain = $null
   } elseif ($Yes) {
     Warn "No OPENAI_API_KEY in environment. Add it later in Settings -> API Keys."
   } else {
     Write-Host ""
     Info "Enter your OpenAI API key to write it to .env.local now."
     Info "Press Enter to skip — you can add it later in Settings -> API Keys."
-    $oaiKey = Read-Host "[ra-h] OpenAI API key" -AsSecureString
-    $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiKey)
-    )
+    $oaiSecure   = Read-Host "[ra-h] OpenAI API key" -AsSecureString
+    $oaiPtr      = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiSecure)
+    $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($oaiPtr)
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($oaiPtr)
   }
 
   if ($oaiKeyPlain) {
-    $envLocal = ".env.local"
+    # Escape key for .NET regex replacement ($N is a backreference)
+    $oaiKeyEsc = $oaiKeyPlain -replace '\$', '$$$$'
     if (Test-Path $envLocal) {
       $content = Get-Content $envLocal -Raw
       if ($content -match '(?m)^OPENAI_API_KEY=') {
-        $content = $content -replace '(?m)^OPENAI_API_KEY=.*', "OPENAI_API_KEY=$oaiKeyPlain"
+        $content = $content -replace '(?m)^OPENAI_API_KEY=.*', "OPENAI_API_KEY=$oaiKeyEsc"
       } else {
-        $content = $content.TrimEnd() + "`nOPENAI_API_KEY=$oaiKeyPlain`n"
+        $content = $content.TrimEnd() + "`r`nOPENAI_API_KEY=$oaiKeyPlain`r`n"
       }
-      Set-Content $envLocal $content -NoNewline
+      Set-Content $envLocal $content -NoNewline -Encoding utf8
     } else {
-      Add-Content $envLocal "OPENAI_API_KEY=$oaiKeyPlain"
+      Add-Content $envLocal "OPENAI_API_KEY=$oaiKeyPlain" -Encoding utf8
     }
     Info "OpenAI API key saved to .env.local"
-  } elseif (-not $Yes) {
+  } elseif (-not $Yes -and -not ((Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.')) {
     Warn "Skipped — add your key later in Settings -> API Keys."
   }
 }
