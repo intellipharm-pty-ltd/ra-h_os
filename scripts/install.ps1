@@ -49,6 +49,19 @@ npm install
 Info "Running setup (profile: $Profile)..."
 npm run setup:local -- --profile $Profile
 
+# ── Vector extension check ───────────────────────────────────────────────────
+
+$vecDll = "vendor\sqlite-extensions\vec0.dll"
+if (Test-Path $vecDll) {
+  Info "sqlite-vec extension found: $vecDll"
+} else {
+  Warn "sqlite-vec extension (vec0.dll) not found at $vecDll"
+  Warn "Vector search will be unavailable on Windows without it. Options:"
+  Warn "  1. Download vec0.dll for your architecture from https://github.com/asg017/sqlite-vec/releases"
+  Warn "     and place it at $((Resolve-Path .).Path)\$vecDll"
+  Warn "  2. Use Qdrant as the vector backend — see QDRANT-DEPLOYMENT.md"
+}
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 
 Write-Host ""

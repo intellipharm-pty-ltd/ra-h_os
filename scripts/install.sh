@@ -65,6 +65,24 @@ npm install
 info "Running setup (profile: $PROFILE)..."
 npm run setup:local -- --profile "$PROFILE"
 
+# ── Vector extension check ───────────────────────────────────────────────────
+
+PLATFORM=$(uname -s)
+if [[ "$PLATFORM" == "Darwin" ]]; then
+  VEC_EXT="vendor/sqlite-extensions/vec0.dylib"
+else
+  VEC_EXT="vendor/sqlite-extensions/vec0.so"
+fi
+
+if [[ -f "$VEC_EXT" ]]; then
+  info "sqlite-vec extension found: $VEC_EXT"
+else
+  warn "sqlite-vec extension not found at $VEC_EXT"
+  warn "Vector search will be unavailable. Options:"
+  warn "  1. Build or download vec0 for your platform and place it at $VEC_EXT"
+  warn "  2. Use Qdrant as the vector backend — see QDRANT-DEPLOYMENT.md"
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
