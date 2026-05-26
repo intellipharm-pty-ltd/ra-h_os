@@ -82,13 +82,30 @@ elif [[ "$NODE_MAJOR" -eq 20 ]]; then
   fi
 fi
 
-$version_ok || error "Node.js v20.18.1 or higher is required (found $(node -v)). See https://nodejs.org"
+if ! $version_ok; then
+  # Node exists but is too old — attempt upgrade via nvm before giving up
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  if command -v nvm >/dev/null 2>&1; then
+    warn "Node.js $(node -v) is too old — upgrading to v20 via nvm..."
+    nvm install 20
+    nvm use 20
+    IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
+    NODE_MAJOR="${NODE_MAJOR%%[!0-9]*}"; NODE_MINOR="${NODE_MINOR%%[!0-9]*}"; NODE_PATCH="${NODE_PATCH%%[!0-9]*}"
+    version_ok=false
+    [[ "$NODE_MAJOR" -gt 20 ]] && version_ok=true
+    [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -gt 18 ]] && version_ok=true
+    [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -eq 18 && "$NODE_PATCH" -ge 1 ]] && version_ok=true
+  fi
+  $version_ok || error "Node.js v20.18.1 or higher is required (found $(node -v)). See https://nodejs.org"
+fi
 
 # ── Clone ────────────────────────────────────────────────────────────────────
 
 if [[ -d "$INSTALL_DIR" ]]; then
   warn "Directory '$INSTALL_DIR' already exists — pulling latest changes."
-  git -C "$INSTALL_DIR" pull --ff-only
+  git -C "$INSTALL_DIR" pull --ff-only \
+    || warn "Could not fast-forward pull (local changes or diverged history) — using existing state."
 else
   info "Cloning RA-H OS into '$INSTALL_DIR'..."
   git clone "$REPO_URL" "$INSTALL_DIR"

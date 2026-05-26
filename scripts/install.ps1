@@ -66,6 +66,9 @@ if (-not $versionOk) { Abort "Node.js v20.18.1 or higher is required (found v$no
 if (Test-Path $InstallDir) {
   Warn "Directory '$InstallDir' already exists — pulling latest changes."
   git -C $InstallDir pull --ff-only
+  if ($LASTEXITCODE -ne 0) {
+    Warn "Could not fast-forward pull (local changes or diverged history) — using existing state."
+  }
 } else {
   Info "Cloning RA-H OS into '$InstallDir'..."
   git clone $RepoUrl $InstallDir
