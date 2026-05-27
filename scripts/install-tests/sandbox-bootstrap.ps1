@@ -43,6 +43,19 @@ function Save-File {
   try { $wc.DownloadFile($Url, $OutFile) } finally { $wc.Dispose() }
 }
 
+# Native server binaries (ollama.exe via winget's OllamaSetup, prebuilt
+# llama-server.exe) link against the MSVC runtime (VCRUNTIME140.dll), which a
+# vanilla sandbox lacks. winget/OllamaSetup install it but ASYNCHRONOUSLY, so a
+# daemon start can race ahead of it. Install it synchronously up front.
+function Install-VCRuntime {
+  if (Test-Path "$env:SystemRoot\System32\vcruntime140.dll") { Info 'Visual C++ runtime already present.'; return }
+  Info 'Installing Visual C++ runtime (vc_redist.x64)...'
+  $vc = Join-Path $env:TEMP 'vc_redist.x64.exe'
+  Save-File 'https://aka.ms/vs/17/release/vc_redist.x64.exe' $vc
+  Start-Process -FilePath $vc -ArgumentList '/install', '/quiet', '/norestart' -Wait
+  Info 'Visual C++ runtime installed.'
+}
+
 Info "Mode: $Mode | Ref: $Ref | Profile: $AiProfile | Winget: $($Winget.IsPresent)"
 
 $Tools = 'C:\tools'
@@ -87,6 +100,13 @@ function Install-Winget {
 }
 
 if ($Winget) { Install-Winget }
+
+# Ensure the MSVC runtime is present BEFORE install.ps1 starts Ollama (winget
+# path) or before we launch llama-server (-Heavy), so neither races the async
+# vc_redist install that OllamaSetup/winget would otherwise trigger.
+if (($AiProfile -eq 'qwen-local' -and $Winget) -or ($AiProfile -eq 'llama-cpp' -and $Heavy)) {
+  Install-VCRuntime
+}
 
 # -- git (portable MinGit, no installer) --------------------------------------
 if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -158,10 +178,12 @@ if ($AiProfile -eq 'qwen-local' -and -not $Winget -and -not (Get-Command ollama 
 if ($AiProfile -eq 'llama-cpp' -and $Heavy) {
   Info 'Provisioning REAL llama.cpp (server + models)...'
   $assetRe = if ($env:LLAMACPP_ASSET_RE) { $env:LLAMACPP_ASSET_RE } else { 'bin-win-cpu-x64\.zip' }
-  $lrel    = Invoke-RestMethod 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest' `
+  # The latest release can be mid-CI and missing the CPU x64 zip; search recent
+  # releases (newest-first) and take the first matching asset.
+  $rels    = Invoke-RestMethod 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15' `
                -Headers @{ 'User-Agent' = 'ra-h-sandbox' }
-  $lasset  = $lrel.assets | Where-Object { $_.name -match $assetRe } | Select-Object -First 1
-  if (-not $lasset) { throw "No llama.cpp asset matching /$assetRe/ in the latest release." }
+  $lasset  = $rels | ForEach-Object { $_.assets } | Where-Object { $_.name -match $assetRe } | Select-Object -First 1
+  if (-not $lasset) { throw "No llama.cpp asset matching /$assetRe/ in recent releases." }
   $lzip = Join-Path $env:TEMP $lasset.name
   Info "Downloading $($lasset.name) ($([math]::Round($lasset.size/1MB)) MB)..."
   Save-File $lasset.browser_download_url $lzip
@@ -177,6 +199,7 @@ if ($AiProfile -eq 'llama-cpp' -and $Heavy) {
   Info 'Downloading chat model...';      Save-File $chatUrl  $chatPath
   Info 'Downloading embedding model...'; Save-File $embedUrl $embedPath
 
+  # MSVC runtime was installed up front by Install-VCRuntime (see top of script).
   Info 'Starting real llama.cpp servers on 8080/8081...'
   Start-Process -FilePath $server.FullName -WindowStyle Hidden -ArgumentList @('-m', $chatPath,  '--host', '127.0.0.1', '--port', '8080', '-c', '512')
   Start-Process -FilePath $server.FullName -WindowStyle Hidden -ArgumentList @('-m', $embedPath, '--host', '127.0.0.1', '--port', '8081', '--embedding', '-c', '512')

@@ -60,8 +60,9 @@ DNF_BOOTSTRAP='dnf install -y -q curl git ca-certificates >/dev/null'
 # Extra deps per llama-cpp variant: real needs unzip + llama.cpp runtime libs;
 # mock needs python3 for the inline /v1/models server.
 if [[ "$LLAMACPP_REAL" == "true" ]]; then
-  APT_BOOTSTRAP="$APT_BOOTSTRAP && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unzip libgomp1 libcurl4 >/dev/null"
-  DNF_BOOTSTRAP="$DNF_BOOTSTRAP && dnf install -y -q unzip libgomp libcurl >/dev/null"
+  # Prebuilt llama-server (ubuntu-x64 .tar.gz) needs OpenMP + libcurl at runtime.
+  APT_BOOTSTRAP="$APT_BOOTSTRAP && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgomp1 libcurl4 >/dev/null"
+  DNF_BOOTSTRAP="$DNF_BOOTSTRAP && dnf install -y -q libgomp libcurl >/dev/null"
 elif [[ "$PROFILE" == "llama-cpp" ]]; then
   APT_BOOTSTRAP="$APT_BOOTSTRAP && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-minimal >/dev/null"
   DNF_BOOTSTRAP="$DNF_BOOTSTRAP && dnf install -y -q python3 >/dev/null"
@@ -97,7 +98,7 @@ elif [[ "$PROFILE" == "llama-cpp" ]]; then
   PREP="( python3 -c \"import http.server,socketserver,threading; H=type('H',(http.server.BaseHTTPRequestHandler,),{'do_GET':lambda s:(s.send_response(200),s.end_headers(),s.wfile.write(b'{}')),'log_message':lambda s,*a:None}); [threading.Thread(target=lambda p=p: socketserver.TCPServer(('127.0.0.1',p),H).serve_forever(),daemon=True).start() for p in (8080,8081)]; import time; time.sleep(86400)\" & ) && for i in 1 2 3 4 5; do curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1 && curl -sf http://127.0.0.1:8081/v1/models >/dev/null 2>&1 && break; sleep 1; done && "
 fi
 
-LOG_DIR="${LOG_DIR:-/tmp/rah-install-tests/$(date +%Y%m%d-%H%M%S)}"
+LOG_DIR="${LOG_DIR:-$REPO_ROOT/scripts/install-tests/logs/$(date +%Y%m%d-%H%M%S)-linux-$MODE-$PROFILE}"
 mkdir -p "$LOG_DIR"
 echo "Per-distro logs: $LOG_DIR"
 

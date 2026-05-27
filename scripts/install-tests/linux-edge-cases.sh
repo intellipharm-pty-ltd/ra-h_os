@@ -17,14 +17,14 @@
 #
 # Env vars:
 #   IMAGE=ubuntu:24.04        base image for default scenarios (apt-based only)
-#   LOG_DIR=/tmp/...          override log directory
+#   LOG_DIR=/path/...         override log dir (default: repo scripts/install-tests/logs/<ts>-linux-edge)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 IMAGE="${IMAGE:-ubuntu:24.04}"
-LOG_DIR="${LOG_DIR:-/tmp/rah-install-tests/$(date +%Y%m%d-%H%M%S)-edge}"
+LOG_DIR="${LOG_DIR:-$REPO_ROOT/scripts/install-tests/logs/$(date +%Y%m%d-%H%M%S)-linux-edge}"
 mkdir -p "$LOG_DIR"
 echo "Per-scenario logs: $LOG_DIR"
 

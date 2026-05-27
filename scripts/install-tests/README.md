@@ -6,6 +6,37 @@ Nothing here modifies your host — Docker containers run with `--rm` and Window
 
 ## Quick copy
 
+### Run the full suite
+
+Linux (from inside WSL Ubuntu, docker running) and Windows (from the host, Windows Sandbox enabled) are independent and can run in parallel. Logs for both land under `scripts/install-tests/logs/<timestamp>-{linux,windows}-*/` (gitignored).
+
+```bash
+# ── Linux (WSL) ──────────────────────────────────────────────────────────────
+cd /mnt/f/Development/ra-h_os
+sudo service docker start                  # if not already running
+
+# Light: edge cases + openai across all 4 distros + llama-cpp mock
+./scripts/install-tests/linux-edge-cases.sh
+MODE=local ./scripts/install-tests/linux-docker-matrix.sh
+MODE=local PROFILE=llama-cpp ./scripts/install-tests/linux-docker-matrix.sh
+
+# Heavy (real models, opt-in): qwen-local + real llama-cpp (1 distro each by default)
+ALLOW_HEAVY=1 MODE=local PROFILE=qwen-local ./scripts/install-tests/linux-docker-matrix.sh
+ALLOW_HEAVY=1 MODE=local PROFILE=llama-cpp ./scripts/install-tests/linux-docker-matrix.sh
+# (add DISTROS="ubuntu:24.04|apt ubuntu:22.04|apt debian:12|apt fedora:40|dnf" to cover all 4)
+```
+
+```powershell
+# ── Windows (host, run each after closing the previous Sandbox) ───────────────
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile openai
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile llama-cpp            # mock
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile llama-cpp -Heavy     # real llama-server
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile qwen-local           # real Ollama + models
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile openai -Winget       # install.ps1's winget path
+```
+
+> **Note:** `-Winget qwen-local` verifies winget's *Ollama install* but the Ollama daemon does not start in the sandbox's non-interactive session (the winget desktop app expects an interactive login) — see [What these tests do NOT cover](#what-these-tests-do-not-cover). The winget *Node* path and the portable-Ollama daemon path are both verified.
+
 ### openai profile (fast — no models pulled)
 
 ```bash
@@ -103,7 +134,7 @@ What *does* persist between runs and accumulate over time:
 
 - **Base distro images** — `ubuntu:24.04`, `ubuntu:22.04`, `debian:12`, `fedora:40` (~500 MB total) cached so subsequent matrix runs don't re-pull.
 - **`rah-test:*` images** — the three pre-seeded Tier 2 images for edge-case scenarios (~1–2 GB total).
-- **Log directories and files** — `/tmp/rah-install-tests/<timestamp>-*/` plus top-level `/tmp/rah-*.log` from the matrix and smoke runs.
+- **Log directories** — `scripts/install-tests/logs/<timestamp>-{windows,linux}-*/` in the repo (gitignored), plus any legacy `/tmp/rah-install-tests/` and `/tmp/rah-*.log`.
 
 ### Cleanup script
 
@@ -128,7 +159,7 @@ If you'd rather run the underlying commands by hand:
 ```bash
 docker rmi rah-test:nvm-no-node rah-test:old-node rah-test:prerelease-node
 docker rmi ubuntu:24.04 ubuntu:22.04 debian:12 fedora:40
-rm -rf /tmp/rah-install-tests /tmp/rah-*.log
+rm -rf scripts/install-tests/logs/* /tmp/rah-install-tests /tmp/rah-*.log
 # Or, for the nuclear option (touches everything Docker has cached):
 docker system prune -a
 ```
@@ -177,7 +208,7 @@ DISTROS="debian:12|apt fedora:40|dnf" MODE=local ./scripts/install-tests/linux-d
 
 Prints a PASS/FAIL summary at the end and exits non-zero if any distro failed.
 
-Each distro's full output is also streamed live AND written to a timestamped log file under `/tmp/rah-install-tests/<YYYYMMDD-HHMMSS>/<image>.log`. The summary lists the log path next to each result so failures are one tail away. Override with `LOG_DIR=/path/to/dir` if you want a stable location.
+Each distro's full output is also streamed live AND written to a per-run log directory in the repo at `scripts/install-tests/logs/<YYYYMMDD-HHMMSS>-linux-<mode>-<profile>/<image>.log` (gitignored, alongside the Windows sandbox logs). The summary lists the log path next to each result so failures are one tail away. Override with `LOG_DIR=/path/to/dir` if you want a different location.
 
 **Note:** in `MODE=local` the installer still `git clone`s `main` from GitHub — only `install.sh` itself comes from your working copy. Push your branch and use `REF=<branch>` if you need the clone to pick up your changes too.
 
@@ -268,6 +299,7 @@ Be honest about the limits before relying on a green result:
 - **macOS-native paths.** The README header says "Linux / macOS" because Docker can be run from a Mac host, but Docker on macOS runs Linux containers — the Darwin-specific branches of `install.sh` (`brew install ollama`, the `.dylib` sqlite-vec extension, `brew services`) are never executed. Test those on a real Mac.
 - **The cloned repo contents (Linux + Windows remote mode).** In Linux local/remote and Windows `-Mode remote`, the installer always `git clone`s from `main`; `REF`/`-Ref` only swaps where the *installer script itself* comes from. Changes to `setup-local.mjs`, `package.json`, or anything else on a feature branch won't be exercised. **Exception:** Windows `-Mode local` pre-clones your branch from the read-only mount, so it *does* test branch app code.
 - **`llama-cpp` against a *real* model's quality.** The profile is tested two ways — a mock `/v1/models` server (default) and a real `llama-server` + small GGUFs (`ALLOW_HEAVY=1` / `-Heavy`). Both only verify the installer's port-reachability check and that setup completes; neither asserts inference quality, and the real path depends on external model URLs that can change (override with `CHAT_GGUF_URL` / `EMBED_GGUF_URL`).
+- **winget Ollama daemon in the sandbox.** `Run-LocalSandbox.ps1 -Winget -AiProfile qwen-local` verifies winget *installs* Ollama, but the daemon won't start in the Sandbox's non-interactive `LogonCommand` session (the winget desktop app starts its server via the tray app on interactive login). This is a sandbox limitation, not an `install.ps1` defect — a real interactive Windows user's winget-installed Ollama auto-starts and `install.ps1` detects it. The daemon path itself is verified via the portable-Ollama (`-AiProfile qwen-local`) run and on Linux.
 - **App boot.** `npm run dev` is never started. "Installation complete!" means the installer exited 0, not that the Next.js server actually starts, the database opens, or the UI loads.
 - **API key validity.** The Linux tests pass `OPENAI_API_KEY=sk-test-placeholder` so the installer writes *something* to `.env.local`. It is never validated against OpenAI's API.
 - **MCP setup.** The `npx -y ra-h-mcp-server@latest setup` step shown at the end of the installer is informational only — it isn't run.
@@ -293,7 +325,7 @@ It does **not** prove the app works end-to-end. To verify the install actually p
 | Sandbox fails to start with a compute/network/disk service error (e.g. `Error 0x80070424`, "service does not exist") | The virtualization services aren't running. Set them to Automatic — see [Windows Sandbox won't start](#windows-sandbox-wont-start) below. |
 | Model pull stalls at 0% or 1% on the qwen-local profile | Ollama registry slowness or local bandwidth. Retry; or pre-pull on the host and bind-mount `~/.ollama` (advanced). |
 | `ERROR: This version requires zstd` during ollama install | Should be handled by `install.sh`'s zstd preflight. If you see it, the installer is out of date — pull `main`. |
-| Per-distro log path scrolls off screen | All logs land under `/tmp/rah-install-tests/<timestamp>/`; the dir is printed at the top of every run. |
+| Per-distro log path scrolls off screen | All logs land under `scripts/install-tests/logs/<timestamp>-linux-*/`; the dir is printed at the top of every run. |
 
 ### Windows Sandbox won't start
 

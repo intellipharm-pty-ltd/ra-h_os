@@ -3,7 +3,8 @@
 #   - rah-test:* Docker images (Tier 2 pre-seeded images)
 #   - Base distro images used by the test matrix
 #     (ubuntu:24.04, ubuntu:22.04, debian:12, fedora:40)
-#   - Test log directories under /tmp/rah-install-tests/
+#   - Test log directories: repo scripts/install-tests/logs/* (Windows + Linux)
+#     and legacy /tmp/rah-install-tests/
 #   - Top-level test log files under /tmp/rah-*.log
 #
 # With --with-build-cache, also runs `docker builder prune -af`
@@ -17,6 +18,8 @@
 #   ./scripts/install-tests/cleanup.sh --with-build-cache # also prune build cache
 #   ./scripts/install-tests/cleanup.sh --dry-run          # show, do nothing
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 YES=false
 DRY_RUN=false
@@ -41,7 +44,7 @@ command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 RAH_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep '^rah-test:' || true)
 BASE_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
   | grep -E '^(ubuntu:24\.04|ubuntu:22\.04|debian:12|fedora:40)$' || true)
-LOG_DIRS=$(find /tmp -maxdepth 1 -type d -name 'rah-install-tests*' 2>/dev/null || true)
+LOG_DIRS=$( { find "$SCRIPT_DIR/logs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null; find /tmp -maxdepth 1 -type d -name 'rah-install-tests*' 2>/dev/null; } || true)
 LOG_FILES=$(find /tmp -maxdepth 1 -type f \( -name 'rah-*.log' -o -name 'rah-matrix.log' -o -name 'rah-qwen-*.log' -o -name 'rah-edge-*.log' \) 2>/dev/null || true)
 
 echo "=== Installer test cleanup ==="
@@ -56,7 +59,7 @@ echo ""
 echo "  Docker images (base distros):"
 if [[ -n "$BASE_IMAGES" ]]; then printf '    %s\n' $BASE_IMAGES; else echo "    (none)"; fi
 echo ""
-echo "  Log directories (/tmp/rah-install-tests*):"
+echo "  Log directories (repo logs/* + /tmp/rah-install-tests*):"
 if [[ -n "$LOG_DIRS" ]]; then printf '    %s\n' $LOG_DIRS; else echo "    (none)"; fi
 echo ""
 echo "  Log files (/tmp/rah-*.log):"

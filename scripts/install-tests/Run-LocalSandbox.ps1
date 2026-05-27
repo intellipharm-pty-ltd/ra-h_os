@@ -40,7 +40,7 @@ $SandboxLog = 'C:\Users\WDAGUtilityAccount\Desktop\ra-h-logs'
 
 # Per-run host log directory (read-write mount target). Survives sandbox close.
 $RunStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$HostLog  = Join-Path $PSScriptRoot "logs\$RunStamp-$Mode-$AiProfile"
+$HostLog  = Join-Path $PSScriptRoot "logs\$RunStamp-windows-$Mode-$AiProfile"
 New-Item -ItemType Directory -Path $HostLog -Force | Out-Null
 
 $LogFile  = "$SandboxLog\install.log"

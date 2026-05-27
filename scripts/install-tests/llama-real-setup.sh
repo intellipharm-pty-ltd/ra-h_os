@@ -15,7 +15,7 @@
 #   EMBED_GGUF_URL      embedding GGUF served on the embedding port (8081)
 set -euo pipefail
 
-LLAMACPP_ASSET_RE="${LLAMACPP_ASSET_RE:-bin-ubuntu-x64\.zip}"
+LLAMACPP_ASSET_RE="${LLAMACPP_ASSET_RE:-bin-ubuntu-x64\.tar\.gz}"
 CHAT_GGUF_URL="${CHAT_GGUF_URL:-https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf}"
 EMBED_GGUF_URL="${EMBED_GGUF_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf}"
 
@@ -24,13 +24,19 @@ mkdir -p "$WORK"
 say() { echo "[llama-real] $*"; }
 
 # -- llama-server binary ------------------------------------------------------
-say "Resolving latest llama.cpp release (asset ~ /$LLAMACPP_ASSET_RE/)..."
-asset_url=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest \
-  | grep -oE 'https://[^"]*' | grep -E "$LLAMACPP_ASSET_RE" | head -1)
-[[ -n "$asset_url" ]] || { echo "[llama-real] could not find a release asset matching $LLAMACPP_ASSET_RE" >&2; exit 1; }
+# The very latest release sometimes hasn't finished uploading the plain CPU x64
+# build, so search the most recent releases (newest-first) and take the first
+# matching REAL asset (grep only browser_download_url, not the body's markdown
+# links). This auto-falls-back past an incomplete latest release.
+say "Resolving llama.cpp release asset (~ /$LLAMACPP_ASSET_RE/)..."
+asset_url=$(curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" \
+  | grep -oE '"browser_download_url": *"[^"]+"' | grep -oE 'https://[^"]+' \
+  | grep -E "$LLAMACPP_ASSET_RE" | head -1)
+[[ -n "$asset_url" ]] || { echo "[llama-real] no release asset matched /$LLAMACPP_ASSET_RE/ in recent releases" >&2; exit 1; }
 say "Downloading $asset_url"
-curl -fsSL "$asset_url" -o "$WORK/llama.zip"
-unzip -q -o "$WORK/llama.zip" -d "$WORK/llama"
+curl -fsSL "$asset_url" -o "$WORK/llama.tgz"
+mkdir -p "$WORK/llama"
+tar -xzf "$WORK/llama.tgz" -C "$WORK/llama"
 SERVER=$(find "$WORK/llama" -type f -name 'llama-server' | head -1)
 [[ -n "$SERVER" ]] || { echo "[llama-real] llama-server not found in release zip" >&2; exit 1; }
 chmod +x "$SERVER"
