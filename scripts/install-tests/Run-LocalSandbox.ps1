@@ -22,7 +22,13 @@ param(
   [switch]$Heavy,
   # -Winget installs winget into the sandbox and skips the portable Node/Ollama
   # bootstrap, so install.ps1's own winget install/upgrade paths get exercised.
-  [switch]$Winget
+  [switch]$Winget,
+  # -OpenAiKey passes a test key into the sandbox as $env:OPENAI_API_KEY so
+  # install.ps1's env-var key-write path runs (it writes the key to .env.local
+  # silently). Use a throwaway value - the run tees .env.local to the host log.
+  # (The interactive Read-Host -AsSecureString prompt is not automatable; this
+  # env-var path is the CI-equivalent and the real test-plan item.)
+  [string]$OpenAiKey
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,10 +61,32 @@ $WsbPath  = Join-Path $env:TEMP "rah-install-test-$(Get-Random).wsb"
 # and tees all output to the log mount so it survives on the host.
 $SandboxBootstrap = "$SandboxSrc\scripts\install-tests\sandbox-bootstrap.ps1"
 $runnerContent = @"
+# Use UTF-8 for the console + captured output so winget/ollama/Node progress
+# bars (Unicode block chars) render correctly in the log instead of CP850
+# mojibake. Keeps the live download feedback, just readable.
+chcp 65001 > `$null
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+`$OutputEncoding = [System.Text.UTF8Encoding]::new()
 Write-Host '[ra-h] Testing installer in Windows Sandbox (mode: $Mode, profile: $AiProfile)' -ForegroundColor Green
 Set-Location `$env:USERPROFILE\Desktop
-powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
-Write-Host "[ra-h] bootstrap+install finished (exit code `$LASTEXITCODE)" -ForegroundColor Cyan
+$(if ($OpenAiKey) { "`$env:OPENAI_API_KEY = '$OpenAiKey'; " })powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
+`$rc = `$LASTEXITCODE
+# Capture Ollama's own logs (they live in the sandbox profile and are wiped on
+# close) so a failed daemon start can be diagnosed from the host log folder.
+`$ollLogs = Join-Path `$env:LOCALAPPDATA 'Ollama'
+if (Test-Path `$ollLogs) {
+  Get-ChildItem "`$ollLogs\*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item `$_.FullName (Join-Path '$SandboxLog' "ollama-`$(`$_.Name)") -Force -ErrorAction SilentlyContinue
+  }
+  Write-Host '[ra-h] Captured Ollama logs to the host log folder.' -ForegroundColor Cyan
+}
+# Capture .env.local (key handling / profile values) for inspection on the host.
+`$envLocal = Join-Path `$env:USERPROFILE 'Desktop\ra-h_os\.env.local'
+if (Test-Path `$envLocal) {
+  Copy-Item `$envLocal (Join-Path '$SandboxLog' 'env.local.txt') -Force -ErrorAction SilentlyContinue
+  Write-Host '[ra-h] Captured .env.local to the host log folder.' -ForegroundColor Cyan
+}
+Write-Host "[ra-h] bootstrap+install finished (exit code `$rc)" -ForegroundColor Cyan
 "@
 [System.IO.File]::WriteAllText((Join-Path $HostLog 'runner.ps1'), $runnerContent, [System.Text.UTF8Encoding]::new($false))
 

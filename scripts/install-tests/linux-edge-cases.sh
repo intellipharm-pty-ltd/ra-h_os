@@ -2,7 +2,7 @@
 # Edge-case and regression tests for install.sh.
 # Each scenario runs in its own --rm container against the local repo (read-only).
 #
-# Seven scenarios:
+# Eight scenarios:
 #   noenv-warns                  --yes without OPENAI_API_KEY → warning shown
 #   non-git-dir-errors           existing non-git dir → clear error, non-zero exit
 #   rerun-uses-pull              re-running → git pull instead of fresh clone
@@ -10,10 +10,12 @@
 #   old-node-auto-upgrade        Node 18 present → installer upgrades to 20 via nvm
 #   prerelease-node-tag-no-crash Node version string "20.18.1-rc.1" → no arithmetic crash
 #   llama-cpp-with-mock-servers  --profile llama-cpp + custom ports → reachability check passes
+#   openai-interactive-key       interactive (no --yes) key prompt via expect → key written to .env.local
 #
-# The first three run against the default base image ($IMAGE). The last four
-# use pre-seeded images built from fixtures/Dockerfile.* — first run builds
-# them (~2 min total); subsequent runs reuse Docker's build cache.
+# noenv-warns / non-git-dir-errors / rerun-uses-pull / openai-interactive-key run
+# against the default base image ($IMAGE). The other four use pre-seeded images
+# built from fixtures/Dockerfile.* — first run builds them (~2 min total);
+# subsequent runs reuse Docker's build cache.
 #
 # Env vars:
 #   IMAGE=ubuntu:24.04        base image for default scenarios (apt-based only)
@@ -127,6 +129,17 @@ run_scenario "llama-cpp-with-mock-servers" "rah-test:llama-cpp-mock" 0 "llama.cp
    done && \
    cd /tmp && OPENAI_API_KEY=sk-test-placeholder bash /work/scripts/install.sh \
      --profile llama-cpp --llm-port 9090 --embedding-port 9091 --yes"
+
+# Interactive OpenAI-key entry: no --yes, no env key → install.sh prompts for the
+# key via `read -rsp ... </dev/tty`. Driven under a pty by expect (see
+# fixtures/openai-interactive.exp), which answers the Node-install prompt then
+# the hidden key prompt. Asserts the key is written to .env.local. This is the
+# automated cover for the two "interactive — not automated" test-plan items.
+run_scenario "openai-interactive-key" "$IMAGE" 0 "OpenAI API key saved to .env.local" \
+  "$BOOTSTRAP && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq expect >/dev/null \
+   && tr -d '\r' < /work/scripts/install-tests/fixtures/openai-interactive.exp > /tmp/oi.exp \
+   && expect /tmp/oi.exp \
+   && grep -q '^OPENAI_API_KEY=sk-test-interactive-123\$' /tmp/ra-h_os/.env.local"
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo ""

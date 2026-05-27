@@ -119,8 +119,11 @@ function Start-OllamaDaemon {
     Warn "Failed to launch ollama serve: $($_.Exception.Message)"
     return $false
   }
+  # A "port in use" failure from our `ollama serve` is fine -- it means another
+  # Ollama server (e.g. the winget desktop app) already owns 11434; we just wait
+  # for it to answer. Poll generously for that.
   $i = 0
-  while ($i -lt 15) {
+  while ($i -lt 30) {
     if (Test-OllamaDaemon) { return $true }
     Start-Sleep 1; $i++
   }
@@ -128,6 +131,7 @@ function Start-OllamaDaemon {
 }
 
 if ($AiProfile -eq "qwen-local") {
+  $ollamaJustInstalled = $false
   # -- Install Ollama if missing --
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     Warn "Ollama is not installed."
@@ -143,12 +147,22 @@ if ($AiProfile -eq "qwen-local") {
       if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Abort "Ollama installation failed. Install manually from https://ollama.com"
       }
+      $ollamaJustInstalled = $true
     } else {
       Abort "Ollama is required for the qwen-local profile. Install from https://ollama.com then re-run."
     }
   }
 
   # -- Start daemon if not running --
+  # The winget Ollama package installs the desktop app, which auto-starts its own
+  # server on 11434 shortly after install. Wait for that before spawning our own
+  # `ollama serve` -- two servers racing for 11434 leaves neither bound.
+  if ($ollamaJustInstalled -and -not (Test-OllamaDaemon)) {
+    Info "Waiting for the Ollama app to start its daemon..."
+    $w = 0
+    while ($w -lt 30 -and -not (Test-OllamaDaemon)) { Start-Sleep 1; $w++ }
+  }
+
   if (-not (Test-OllamaDaemon)) {
     Warn "Ollama daemon is not running."
     if (Ask "Start Ollama now?") {
