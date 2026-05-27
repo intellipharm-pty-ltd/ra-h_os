@@ -33,27 +33,62 @@ explorer.exe scripts\install-tests\windows-sandbox-remote.wsb
 
 # Windows — test your local install.ps1 working copy
 .\scripts\install-tests\Run-LocalSandbox.ps1
+
+# Windows — exercise install.ps1's real winget paths (installs winget, lets the
+# installer winget-install Node itself instead of using the portable bootstrap)
+.\scripts\install-tests\Run-LocalSandbox.ps1 -Winget
 ```
 
-### qwen-local profile (slow — pulls ~3 GB of ollama models per run)
+### qwen-local profile (heavy — real Ollama + ~3 GB of models)
 
-Heads up: each container/sandbox pulls `qwen3:4b` (~2.6 GB) and `qwen3-embedding:0.6b` (~600 MB) from the ollama registry. The full Linux matrix downloads them four times. Budget ~10–15 min per distro and ensure you have the bandwidth and disk headroom.
+Pulls `qwen3:4b` (~2.6 GB) and `qwen3-embedding:0.6b` (~600 MB). On Linux it is gated behind `ALLOW_HEAVY=1` and defaults to a single distro; the Windows sandbox always runs it for real (it downloads Ollama, ~2 GB, then pulls the models). Budget plenty of time, bandwidth, and disk.
 
 ```bash
-# Linux — smoke test the qwen-local flow on one distro
-PROFILE=qwen-local DISTROS="ubuntu:24.04|apt" MODE=local ./scripts/install-tests/linux-docker-matrix.sh
+# Linux — one distro (the default when qwen-local is selected)
+ALLOW_HEAVY=1 PROFILE=qwen-local MODE=local ./scripts/install-tests/linux-docker-matrix.sh
 
-# Linux — full qwen-local matrix (~45–60 min, pulls models 4 times)
-PROFILE=qwen-local MODE=local ./scripts/install-tests/linux-docker-matrix.sh
+# Linux — across all four distros (pulls models 4 times, ~45–60 min)
+ALLOW_HEAVY=1 PROFILE=qwen-local MODE=local \
+  DISTROS="ubuntu:24.04|apt ubuntu:22.04|apt debian:12|apt fedora:40|dnf" \
+  ./scripts/install-tests/linux-docker-matrix.sh
 ```
 
 ```powershell
-# Windows — test public install.ps1 with qwen-local in a disposable VM
-explorer.exe scripts\install-tests\windows-sandbox-remote-qwen.wsb
-
-# Windows — test your local install.ps1 with qwen-local
+# Windows — local working copy with qwen-local
 .\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile qwen-local
+
+# Windows — public install.ps1 with qwen-local in a disposable VM
+explorer.exe scripts\install-tests\windows-sandbox-remote-qwen.wsb
 ```
+
+### llama-cpp profile (mock by default; real with a flag)
+
+The installer only checks that an OpenAI-compatible server answers on the LLM and
+embedding ports (8080/8081). By default the harness starts a tiny **mock** so the
+check passes instantly (CI-friendly). Add the heavy flag to provision a **real**
+`llama-server` + small GGUF models instead (downloads a server + ~0.5 GB of models).
+
+```bash
+# Linux — mock servers (fast, CI-friendly)
+PROFILE=llama-cpp MODE=local ./scripts/install-tests/linux-docker-matrix.sh
+
+# Linux — REAL llama-server + models (full system)
+ALLOW_HEAVY=1 PROFILE=llama-cpp MODE=local ./scripts/install-tests/linux-docker-matrix.sh
+
+# The llama-cpp edge case in linux-edge-cases.sh also exercises the mock on custom ports
+./scripts/install-tests/linux-edge-cases.sh
+```
+
+```powershell
+# Windows — mock servers (fast)
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile llama-cpp
+
+# Windows — REAL llama-server + models (full system)
+.\scripts\install-tests\Run-LocalSandbox.ps1 -AiProfile llama-cpp -Heavy
+```
+
+Real-llama-cpp model URLs are overridable via `CHAT_GGUF_URL` / `EMBED_GGUF_URL`
+(and `LLAMACPP_ASSET_RE` for the release asset) if an upstream URL changes.
 
 See sections below for prerequisites and full option reference.
 
@@ -184,43 +219,55 @@ Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientV
 ```
 Reboot afterward.
 
-### Remote mode — tests the public one-liner
-
-Double-click `windows-sandbox-remote.wsb`. A fresh Windows 11 VM boots, a PowerShell window opens, and it runs:
+`Run-LocalSandbox.ps1` mirrors the Linux harness's `MODE` switch via a `-Mode` parameter (`local` default, or `remote`). A vanilla Windows Sandbox ships without git **or** winget, so the launcher mounts the repo and runs `sandbox-bootstrap.ps1`, which downloads portable git (MinGit) and a Node.js zip into the throwaway session before handing off to the installer. The full run is teed to a read-write log folder on the host (`scripts\install-tests\logs\<timestamp>-<mode>-<profile>\install.log`) so results survive the sandbox closing.
 
 ```powershell
-irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+# Local mode (default) — tests your working copy / PR branch
+.\Run-LocalSandbox.ps1                              # openai profile
+.\Run-LocalSandbox.ps1 -AiProfile qwen-local
+
+# Remote mode — tests the published installer from a GitHub ref
+.\Run-LocalSandbox.ps1 -Mode remote                 # install.ps1 from main
+.\Run-LocalSandbox.ps1 -Mode remote -Ref my-branch  # from a pushed branch
 ```
 
-Close the Sandbox window when done — everything is wiped.
+- **`-Mode local`** runs the **mounted** `install.ps1` and *pre-clones your branch from the mount* (`git clone` of the read-only working-copy HEAD into the install dir), so `install.ps1` finds an existing repo and `git pull`s from the mount instead of cloning `main`. This exercises the whole PR — branch installer **and** branch app code. Unlike Linux local mode, the clone is **not** from GitHub.
+- **`-Mode remote`** fetches `install.ps1` from `https://raw.githubusercontent.com/.../<Ref>/scripts/install.ps1` and runs it; the installer then clones the published repo (`main`). `-Ref` defaults to `main`.
+- **`-Winget`** installs winget (App Installer) into the sandbox and **skips** the portable Node/Ollama bootstrap, so `install.ps1`'s own winget paths run (`winget install OpenJS.NodeJS.LTS`, `winget install Ollama.Ollama`). Without it, the portable provisioning means the installer finds those deps already present and never calls winget. git is still bootstrapped either way (the installer requires it but never installs it). Use this to verify the winget branches that the default mock-free bootstrap bypasses.
 
-### Local mode — tests your working copy
+For a zero-setup remote smoke test with no repo mount, the static `windows-sandbox-remote.wsb` / `windows-sandbox-remote-qwen.wsb` still work — double-click them to boot a VM that runs `irm .../install.ps1 | iex` directly.
 
-```powershell
-.\Run-LocalSandbox.ps1
-```
-
-Generates a temp `.wsb` that mounts the repo root read-only at `C:\Users\WDAGUtilityAccount\Desktop\ra-h_os-src` and runs `scripts\install.ps1 -Yes` from the mount. Same caveat as Linux local mode: the installer still clones `main` from GitHub for everything except `install.ps1` itself.
+Close the Sandbox window when done — everything inside is wiped; the host log folder remains.
 
 ## What gets tested
 
 The default `openai` profile is the cheap smoke test — it doesn't need network services or models. It verifies:
 
-- Node detection / install (nvm on Linux, winget on Windows)
+- Node detection / install (nvm on Linux; winget on Windows — the Sandbox harness pre-provisions a portable Node by default, so the winget path isn't exercised unless you pass `Run-LocalSandbox.ps1 -Winget`, which installs winget and lets `install.ps1` use it)
 - Git clone
 - `npm install` + `npm run setup:local`
 - `.env.local` creation and permissions hardening
 - sqlite-vec extension detection (warns but doesn't fail if missing)
 
-`qwen-local` additionally installs Ollama, starts the daemon, and pulls multi-GB models. `llama-cpp` is not exercised here — it expects pre-running llama.cpp servers that aren't available in containers.
+`qwen-local` additionally installs Ollama, starts the daemon, and pulls multi-GB models (gated behind `ALLOW_HEAVY=1` on Linux). `llama-cpp` runs against a mock `/v1/models` server by default, or a real `llama-server` + GGUF models with the heavy flag.
+
+### Profile × platform coverage
+
+| Profile | Linux (Docker matrix + edge cases) | Windows (Sandbox) |
+|---|---|---|
+| **openai** | ✅ 4 distros + edge cases | ✅ local + remote |
+| **qwen-local** | ✅ real, `ALLOW_HEAVY=1` (1 distro default) | ✅ real (always) |
+| **llama-cpp** | ✅ mock (default) · ✅ real, `ALLOW_HEAVY=1` | ✅ mock (default) · ✅ real, `-Heavy` |
+
+Not covered: **macOS** (Docker runs Linux containers, so the Darwin branches of `install.sh` — `brew install ollama`, `.dylib` vec ext, `brew services` — need a real Mac), and **app boot** (`npm run dev` is never started).
 
 ## What these tests do NOT cover
 
 Be honest about the limits before relying on a green result:
 
 - **macOS-native paths.** The README header says "Linux / macOS" because Docker can be run from a Mac host, but Docker on macOS runs Linux containers — the Darwin-specific branches of `install.sh` (`brew install ollama`, the `.dylib` sqlite-vec extension, `brew services`) are never executed. Test those on a real Mac.
-- **The cloned repo contents.** `install.sh` and `install.ps1` always `git clone` from `main`. `REF=<branch>` only swaps where the *installer script itself* comes from. Changes to `setup-local.mjs`, `package.json`, or anything else on a feature branch won't be exercised until merged to main.
-- **`llama-cpp` profile.** Not tested at all — it expects pre-running llama.cpp servers.
+- **The cloned repo contents (Linux + Windows remote mode).** In Linux local/remote and Windows `-Mode remote`, the installer always `git clone`s from `main`; `REF`/`-Ref` only swaps where the *installer script itself* comes from. Changes to `setup-local.mjs`, `package.json`, or anything else on a feature branch won't be exercised. **Exception:** Windows `-Mode local` pre-clones your branch from the read-only mount, so it *does* test branch app code.
+- **`llama-cpp` against a *real* model's quality.** The profile is tested two ways — a mock `/v1/models` server (default) and a real `llama-server` + small GGUFs (`ALLOW_HEAVY=1` / `-Heavy`). Both only verify the installer's port-reachability check and that setup completes; neither asserts inference quality, and the real path depends on external model URLs that can change (override with `CHAT_GGUF_URL` / `EMBED_GGUF_URL`).
 - **App boot.** `npm run dev` is never started. "Installation complete!" means the installer exited 0, not that the Next.js server actually starts, the database opens, or the UI loads.
 - **API key validity.** The Linux tests pass `OPENAI_API_KEY=sk-test-placeholder` so the installer writes *something* to `.env.local`. It is never validated against OpenAI's API.
 - **MCP setup.** The `npx -y ra-h-mcp-server@latest setup` step shown at the end of the installer is informational only — it isn't run.
@@ -242,9 +289,52 @@ It does **not** prove the app works end-to-end. To verify the install actually p
 | `/mnt/f/Development/ra-h_os: No such file or directory` inside WSL | The drive isn't mounted in this WSL instance. Check `/etc/wsl.conf` automount settings. |
 | Windows Sandbox menu entry missing | Feature not enabled, or reboot wasn't done. Re-run the `Enable-WindowsOptionalFeature` command and reboot. |
 | `WindowsSandbox.exe` exists but `.wsb` won't launch | Try double-clicking from File Explorer instead of `explorer.exe <path>` — file association may not be registered for elevated shells. |
+| Sandbox crashes on launch / black-screens / `Hyper-V-Worker Event 33101` vPCI protocol version mismatch | Disable vGPU sharing — see [Windows Sandbox won't start](#windows-sandbox-wont-start) below. |
+| Sandbox fails to start with a compute/network/disk service error (e.g. `Error 0x80070424`, "service does not exist") | The virtualization services aren't running. Set them to Automatic — see [Windows Sandbox won't start](#windows-sandbox-wont-start) below. |
 | Model pull stalls at 0% or 1% on the qwen-local profile | Ollama registry slowness or local bandwidth. Retry; or pre-pull on the host and bind-mount `~/.ollama` (advanced). |
 | `ERROR: This version requires zstd` during ollama install | Should be handled by `install.sh`'s zstd preflight. If you see it, the installer is out of date — pull `main`. |
 | Per-distro log path scrolls off screen | All logs land under `/tmp/rah-install-tests/<timestamp>/`; the dir is printed at the top of every run. |
+
+### Windows Sandbox won't start
+
+On some Windows 11 builds the Sandbox crashes on launch, black-screens, or logs a
+`Hyper-V-Worker Event 33101` vPCI protocol version mismatch. Two host-side fixes,
+applied together, resolve it:
+
+**1. Disable vGPU sharing.** The vGPU path is the usual culprit behind the vPCI
+mismatch; the harness doesn't need a GPU.
+
+- `Win+R` → `gpedit.msc`
+- Computer Configuration → Administrative Templates → Windows Components → Windows Sandbox
+- Set **"Allow vGPU sharing for Windows Sandbox"** to **Disabled**
+
+  (No Group Policy Editor on Home editions — set the registry value instead, then reboot:
+  `reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Sandbox" /v AllowVGPU /t REG_DWORD /d 0 /f`)
+
+**2. Ensure the virtualization services start automatically.** If these are
+disabled or set to *Automatic (Delayed Start)*, the Sandbox can fail to start
+before they are ready. In `services.msc`, set each of these to **Automatic**
+(not delayed), then reboot:
+
+- Hyper-V Host Compute Service
+- Container Manager Service
+- Network Virtualization Service
+- Virtual Disk
+
+Equivalent from an **admin** PowerShell (matches by display name so it works
+regardless of the internal service key):
+
+```powershell
+'Hyper-V Host Compute Service','Container Manager Service','Network Virtualization Service','Virtual Disk' |
+  ForEach-Object {
+    $svc = Get-Service -DisplayName $_ -ErrorAction SilentlyContinue
+    if ($svc) { Set-Service -Name $svc.Name -StartupType Automatic; Write-Host "set $_ -> Automatic" }
+    else      { Write-Host "service not found: $_" -ForegroundColor Yellow }
+  }
+```
+
+Reboot after applying both fixes, then confirm a vanilla `WindowsSandbox.exe`
+launches cleanly before re-running `Run-LocalSandbox.ps1`.
 
 ## CI integration (sketch)
 

@@ -22,13 +22,13 @@ function Ask   {
   return $ans -match '^[Yy]'
 }
 
-# ── git check ────────────────────────────────────────────────────────────────
+# -- git check ----------------------------------------------------------------
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   Abort "git is required but not installed. See https://git-scm.com"
 }
 
-# ── Node.js check ────────────────────────────────────────────────────────────
+# -- Node.js check ------------------------------------------------------------
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm -ErrorAction SilentlyContinue)) {
   Warn "Node.js is not installed."
@@ -37,7 +37,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command 
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
       Abort "winget not available. Install Node.js manually from https://nodejs.org then re-run."
     }
-    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
+    winget install OpenJS.NodeJS.LTS --source winget --accept-package-agreements --accept-source-agreements --silent
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
                 $env:Path
@@ -66,7 +66,7 @@ if (-not $versionOk) {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
       Abort "winget not available. Install Node.js v20.18.1+ manually from https://nodejs.org then re-run."
     }
-    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
+    winget install OpenJS.NodeJS.LTS --source winget --accept-package-agreements --accept-source-agreements --silent
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
                 $env:Path
@@ -85,15 +85,15 @@ if (-not $versionOk) {
   }
 }
 
-# ── Clone ────────────────────────────────────────────────────────────────────
+# -- Clone --------------------------------------------------------------------
 
 if (Test-Path $InstallDir) {
-  Warn "Directory '$InstallDir' already exists — pulling latest changes."
+  Warn "Directory '$InstallDir' already exists - pulling latest changes."
   git -C $InstallDir rev-parse --git-dir 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { Abort "Directory '$InstallDir' exists but is not a git repository. Remove it and re-run." }
   git -C $InstallDir pull --ff-only
   if ($LASTEXITCODE -ne 0) {
-    Warn "Could not fast-forward pull (local changes or diverged history) — using existing state."
+    Warn "Could not fast-forward pull (local changes or diverged history) - using existing state."
   }
 } else {
   Info "Cloning RA-H OS into '$InstallDir'..."
@@ -102,7 +102,7 @@ if (Test-Path $InstallDir) {
 
 Set-Location $InstallDir
 
-# ── Profile pre-flight ───────────────────────────────────────────────────────
+# -- Profile pre-flight -------------------------------------------------------
 
 function Test-OllamaDaemon {
   try {
@@ -128,7 +128,7 @@ function Start-OllamaDaemon {
 }
 
 if ($AiProfile -eq "qwen-local") {
-  # ── Install Ollama if missing ──
+  # -- Install Ollama if missing --
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     Warn "Ollama is not installed."
     if (Ask "Install Ollama now?") {
@@ -136,7 +136,7 @@ if ($AiProfile -eq "qwen-local") {
       if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Abort "winget not available. Install Ollama manually from https://ollama.com then re-run."
       }
-      winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent
+      winget install Ollama.Ollama --source winget --accept-package-agreements --accept-source-agreements --silent
       $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                   [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
                   $env:Path
@@ -148,14 +148,14 @@ if ($AiProfile -eq "qwen-local") {
     }
   }
 
-  # ── Start daemon if not running ──
+  # -- Start daemon if not running --
   if (-not (Test-OllamaDaemon)) {
     Warn "Ollama daemon is not running."
     if (Ask "Start Ollama now?") {
       if (-not (Start-OllamaDaemon)) {
         Abort "Ollama daemon failed to start. Launch Ollama from the Start Menu or run 'ollama serve' then re-run."
       }
-      Warn "Ollama running as a background process — not persistent across reboots. To install as a Windows service, see: https://github.com/ollama/ollama/blob/main/docs/windows.md"
+      Warn "Ollama running as a background process - not persistent across reboots. To install as a Windows service, see: https://github.com/ollama/ollama/blob/main/docs/windows.md"
       Info "Ollama daemon is running."
     } else {
       Abort "Ollama must be running to pull models. Launch it from the Start Menu or run: ollama serve"
@@ -186,7 +186,7 @@ if ($AiProfile -eq "llama-cpp") {
   Info "llama.cpp servers reachable on ports $LlmPort and $EmbeddingPort."
 }
 
-# ── Install & setup ──────────────────────────────────────────────────────────
+# -- Install & setup ----------------------------------------------------------
 
 Info "Installing dependencies..."
 npm install
@@ -199,13 +199,13 @@ if ($AiProfile -eq "llama-cpp") {
 npm run setup:local -- --profile $AiProfile
 if (Test-Path ".env.local") {
   if ([string]::IsNullOrEmpty($env:USERNAME)) {
-    Warn ".env.local exists but USERNAME env var is empty — skipping ACL hardening."
+    Warn ".env.local exists but USERNAME env var is empty - skipping ACL hardening."
   } else {
     icacls ".env.local" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
   }
 }
 
-# ── OpenAI API key ───────────────────────────────────────────────────────────
+# -- OpenAI API key -----------------------------------------------------------
 
 if ($AiProfile -eq "openai") {
   $oaiKeyPlain   = $env:OPENAI_API_KEY
@@ -213,16 +213,16 @@ if ($AiProfile -eq "openai") {
   $keyAlreadySet = (Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.'
 
   if ($oaiKeyPlain) {
-    Info "OPENAI_API_KEY found in environment — writing to .env.local."
+    Info "OPENAI_API_KEY found in environment - writing to .env.local."
   } elseif ($keyAlreadySet) {
-    Info "OPENAI_API_KEY already set in .env.local — skipping."
+    Info "OPENAI_API_KEY already set in .env.local - skipping."
     $oaiKeyPlain = $null
   } elseif ($Yes) {
     Warn "No OPENAI_API_KEY in environment. Add it later in Settings -> API Keys."
   } else {
     Write-Host ""
     Info "Enter your OpenAI API key to write it to .env.local now."
-    Info "Press Enter to skip — you can add it later in Settings -> API Keys."
+    Info "Press Enter to skip - you can add it later in Settings -> API Keys."
     $oaiSecure   = Read-Host "[ra-h] OpenAI API key" -AsSecureString
     $oaiPtr      = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($oaiSecure)
     $oaiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($oaiPtr)
@@ -252,11 +252,11 @@ if ($AiProfile -eq "openai") {
     }
     Info "OpenAI API key saved to .env.local"
   } elseif (-not $Yes -and -not $keyAlreadySet) {
-    Warn "Skipped — add your key later in Settings -> API Keys."
+    Warn "Skipped - add your key later in Settings -> API Keys."
   }
 }
 
-# ── Vector extension check ───────────────────────────────────────────────────
+# -- Vector extension check ---------------------------------------------------
 
 $vecDll = "vendor\sqlite-extensions\vec0.dll"
 if (Test-Path $vecDll) {
@@ -266,10 +266,10 @@ if (Test-Path $vecDll) {
   Warn "Vector search will be unavailable on Windows without it. Options:"
   Warn "  1. Download vec0.dll for your architecture from https://github.com/asg017/sqlite-vec/releases"
   Warn "     and place it at $((Resolve-Path .).Path)\$vecDll"
-  Warn "  2. Use Qdrant as the vector backend — see QDRANT-DEPLOYMENT.md"
+  Warn "  2. Use Qdrant as the vector backend - see QDRANT-DEPLOYMENT.md"
 }
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+# -- Done ---------------------------------------------------------------------
 
 Write-Host ""
 Info "Installation complete!"
