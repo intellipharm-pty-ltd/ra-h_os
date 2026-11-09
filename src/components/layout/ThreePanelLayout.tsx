@@ -197,9 +197,13 @@ export default function ThreePanelLayout() {
   const hasHydratedPaneCountRef = useRef(false);
   const [theme, toggleTheme] = useTheme();
 
-  const [slotA, setSlotA] = useState<SlotState | null>(() => readPersistedSlotState(SLOT_A_KEY, DEFAULT_SLOT_A));
-  const [slotB, setSlotB] = useState<SlotState | null>(() => readPersistedSlotState(SLOT_B_KEY, null));
-  const [slotC, setSlotC] = useState<SlotState | null>(() => readPersistedSlotState(SLOT_C_KEY, null));
+  // Start from the same defaults the server renders, then restore the saved panes after
+  // mount. Reading localStorage during the first render made the client's initial tree
+  // differ from the server HTML (a hydration mismatch) whenever a non-default pane was saved.
+  const [slotA, setSlotA] = useState<SlotState | null>(DEFAULT_SLOT_A);
+  const [slotB, setSlotB] = useState<SlotState | null>(null);
+  const [slotC, setSlotC] = useState<SlotState | null>(null);
+  const [slotsRestored, setSlotsRestored] = useState(false);
   const [visiblePaneCount, setVisiblePaneCount] = usePersistentState<number>(VISIBLE_PANE_COUNT_KEY, 2);
   const [panelAExpanded, setPanelAExpanded] = usePersistentState<boolean>(PANEL_A_EXPANDED_KEY, true);
   const [panelBExpanded, setPanelBExpanded] = usePersistentState<boolean>(PANEL_B_EXPANDED_KEY, false);
@@ -269,16 +273,25 @@ export default function ThreePanelLayout() {
   }, []);
 
   useEffect(() => {
-    persistSlotState(SLOT_A_KEY, slotA);
-  }, [slotA]);
+    setSlotA(readPersistedSlotState(SLOT_A_KEY, DEFAULT_SLOT_A));
+    setSlotB(readPersistedSlotState(SLOT_B_KEY, null));
+    setSlotC(readPersistedSlotState(SLOT_C_KEY, null));
+    setSlotsRestored(true);
+  }, []);
+
+  // Persist only after the saved panes are restored; otherwise the first commit would
+  // overwrite them with the server defaults.
+  useEffect(() => {
+    if (slotsRestored) persistSlotState(SLOT_A_KEY, slotA);
+  }, [slotA, slotsRestored]);
 
   useEffect(() => {
-    persistSlotState(SLOT_B_KEY, slotB);
-  }, [slotB]);
+    if (slotsRestored) persistSlotState(SLOT_B_KEY, slotB);
+  }, [slotB, slotsRestored]);
 
   useEffect(() => {
-    persistSlotState(SLOT_C_KEY, slotC);
-  }, [slotC]);
+    if (slotsRestored) persistSlotState(SLOT_C_KEY, slotC);
+  }, [slotC, slotsRestored]);
 
   useEffect(() => {
     let cancelled = false;
